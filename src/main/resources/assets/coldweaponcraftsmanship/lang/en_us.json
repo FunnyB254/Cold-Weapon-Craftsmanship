@@ -1,0 +1,29 @@
+{
+  "itemGroup.coldweaponcraftsmanship": "Cold Weapon Craftsmanship",
+  "item.coldweaponcraftsmanship.creative_part_star": "Creative Part Star",
+  "item.coldweaponcraftsmanship.part": "Part",
+  "item.coldweaponcraftsmanship.handle_part": "Handle Part",
+  "screen.coldweaponcraftsmanship.craft_parts": "Craft Parts",
+  "screen.coldweaponcraftsmanship.assemble_parts": "Assemble Parts",
+  "tooltip.coldweaponcraftsmanship.cycle_recipe": "Cycle Recipe",
+  "tooltip.coldweaponcraftsmanship.recipe_material": "%s×%s",
+  "tooltip.coldweaponcraftsmanship.recipe_output": "→ %s",
+  "tooltip.coldweaponcraftsmanship.recipe_loading": "Loading...",
+
+  "type.cwc.standard_blade": "Standard Blade",
+  "type.cwc.one_handed_sword_handle": "One-Handed Sword Handle",
+
+  "material.cwc.iron": "Iron",
+  "material.cwc.wood": "Wood",
+
+  "part.cwc.standard_blade.iron": "Iron Standard Blade",
+  "part.cwc.standard_blade.wood": "Wooden Standard Blade",
+  "part.cwc.one_handed_sword_handle.wood": "Wooden One-Handed Sword Handle",
+
+  "slot.cwc.blade": "Blade Slot",
+  "slot.cwc.guard": "Guard Slot",
+  "slot.cwc.pommel": "Pommel Slot",
+
+  "grid.cwc.part_list": "Part List",
+  "grid.cwc.material_list": "Material List"
+}

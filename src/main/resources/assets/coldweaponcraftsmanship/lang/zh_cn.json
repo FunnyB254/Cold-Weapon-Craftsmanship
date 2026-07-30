@@ -1,0 +1,29 @@
+{
+  "itemGroup.coldweaponcraftsmanship": "冷兵器工艺",
+  "item.coldweaponcraftsmanship.creative_part_star": "创造零件之星",
+  "item.coldweaponcraftsmanship.part": "零件",
+  "item.coldweaponcraftsmanship.handle_part": "手柄零件",
+  "screen.coldweaponcraftsmanship.craft_parts": "制造零件",
+  "screen.coldweaponcraftsmanship.assemble_parts": "组装零件",
+  "tooltip.coldweaponcraftsmanship.cycle_recipe": "切换配方",
+  "tooltip.coldweaponcraftsmanship.recipe_material": "%s×%s",
+  "tooltip.coldweaponcraftsmanship.recipe_output": "→ %s",
+  "tooltip.coldweaponcraftsmanship.recipe_loading": "加载中...",
+
+  "type.cwc.standard_blade": "标准刃",
+  "type.cwc.one_handed_sword_handle": "单手剑柄",
+
+  "material.cwc.iron": "铁",
+  "material.cwc.wood": "木",
+
+  "part.cwc.standard_blade.iron": "铁标准刃",
+  "part.cwc.standard_blade.wood": "木标准刃",
+  "part.cwc.one_handed_sword_handle.wood": "木单手剑柄",
+
+  "slot.cwc.blade": "刃槽",
+  "slot.cwc.guard": "镡槽",
+  "slot.cwc.pommel": "柄尾槽",
+
+  "grid.cwc.part_list": "零件列表",
+  "grid.cwc.material_list": "材料列表"
+}

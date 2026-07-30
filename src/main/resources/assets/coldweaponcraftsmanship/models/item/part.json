@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/handheld",
+  "textures": {
+    "layer0": "coldweaponcraftsmanship:item/iron_standard_blade"
+  }
+}

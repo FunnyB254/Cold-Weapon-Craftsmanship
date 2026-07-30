@@ -1,0 +1,23 @@
+{
+  "parser": "cwc:default",
+  "data": {},
+  "slots": [
+    {
+      "name": "slot.cwc.blade",
+      "constraint": {
+        "type": ["attack"],
+        "mount": ["tang"],
+        "weight": ["light", "middle"]
+      },
+      "scale": { "damage": 1.0, "speed": 0.3, "durability": 0.5 }
+    },
+    {
+      "name": "slot.cwc.pommel",
+      "constraint": {
+        "type": ["pommel"],
+        "weight": ["light", "middle", "heavy"]
+      },
+      "scale": { "damage": 0.0, "speed": 0.1, "durability": 0.1 }
+    }
+  ]
+}

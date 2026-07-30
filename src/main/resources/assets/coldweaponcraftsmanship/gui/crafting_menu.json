@@ -1,0 +1,12 @@
+{
+  "image_width": 256,
+  "image_height": 180,
+  "tex_width": 256,
+  "tex_height": 256,
+  "inventory_start_x": 48,
+  "inventory_start_y": 102,
+  "slot_input_0": { "x": 102, "y": 18 },
+  "slot_input_1": { "x": 120, "y": 18 },
+  "slot_input_2": { "x": 138, "y": 18 },
+  "slot_output": { "x": 120, "y": 61 }
+}

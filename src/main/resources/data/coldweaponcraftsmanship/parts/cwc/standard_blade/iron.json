@@ -1,0 +1,8 @@
+{
+  "parser": "cwc:metal",
+  "data": {
+    "damage": { "base": 2, "hardnessMultiplier": 0.5, "toughnessMultiplier": 0 },
+    "speed": { "base": 0, "hardnessMultiplier": 0, "toughnessMultiplier": 0 },
+    "durability": { "base": 50, "hardnessMultiplier": 5, "toughnessMultiplier": 2 }
+  }
+}

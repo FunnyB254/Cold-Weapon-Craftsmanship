@@ -1,0 +1,29 @@
+{
+  "image_width": 256,
+  "image_height": 166,
+  "tex_width": 256,
+  "tex_height": 256,
+  "background_color": "0xC0101010",
+  "button_craft": {
+    "x_offset": -1,
+    "y_offset": 62,
+    "width": 44,
+    "height": 44
+  },
+  "button_assemble": {
+    "x_offset": 213,
+    "y_offset": 62,
+    "width": 44,
+    "height": 44
+  },
+  "label_craft": {
+    "x_offset": 22,
+    "y_offset": 94,
+    "color": "0xFFFFFF"
+  },
+  "label_assemble": {
+    "x_offset": 236,
+    "y_offset": 94,
+    "color": "0xFFFFFF"
+  }
+}

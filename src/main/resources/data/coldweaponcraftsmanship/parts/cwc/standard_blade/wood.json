@@ -1,0 +1,8 @@
+{
+  "parser": "cwc:default",
+  "data": {
+    "damage": 2.0,
+    "speed": 0.4,
+    "durability": 30
+  }
+}

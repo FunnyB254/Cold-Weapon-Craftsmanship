@@ -27,7 +27,16 @@ sourceSets.main.resources {
 }
 
 repositories {
-    // Add here additional repositories if required by some of the dependencies below.
+    maven {
+        url = "https://maven.aliyun.com/repository/public"
+    }
+    maven {
+        url = "https://maven.aliyun.com/repository/central"
+    }
+    maven {
+        url = "https://neoforged.forgecdn.net/releases"
+    }
+    mavenCentral()
 }
 
 base {
@@ -141,29 +150,36 @@ dependencies {
     // http://www.gradle.org/docs/current/userguide/dependency_management.html
 }
 
-// This block of code expands all declared replace properties in the specified resource targets.
-// A missing property will result in an error. Properties are expanded using ${} Groovy notation.
-var generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {
-    var replaceProperties = [
-            minecraft_version      : minecraft_version,
-            minecraft_version_range: minecraft_version_range,
-            neo_version            : neo_version,
-            loader_version_range   : loader_version_range,
-            mod_id                 : mod_id,
-            mod_name               : mod_name,
-            mod_license            : mod_license,
-            mod_version            : mod_version,
-    ]
-    inputs.properties replaceProperties
-    expand replaceProperties
-    from "src/main/templates"
-    into "build/generated/sources/modMetadata"
+// Generate mod metadata from template -- disabled, using static toml in src/main/resources/META-INF/
+// var generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {
+//     var replaceProperties = [
+//             minecraft_version      : minecraft_version,
+//             minecraft_version_range: minecraft_version_range,
+//             neo_version            : neo_version,
+//             loader_version_range   : loader_version_range,
+//             mod_id                 : mod_id,
+//             mod_name               : mod_name,
+//             mod_license            : mod_license,
+//             mod_version            : mod_version,
+//     ]
+//     inputs.properties replaceProperties
+//     expand replaceProperties
+//     from "src/main/templates"
+//     into "build/generated/sources/modMetadata"
+// }
+// sourceSets.main.resources.srcDir generateModMetadata
+// neoForge.ideSyncTask generateModMetadata
+
+// Copy mods.toml to classes dir so dev environment can find it
+tasks.register('copyModsToml', Copy) {
+    from layout.buildDirectory.dir('resources/main/META-INF')
+    into layout.buildDirectory.dir('classes/java/main/META-INF')
 }
-// Include the output of "generateModMetadata" as an input directory for the build
-// this works with both building through Gradle and the IDE.
-sourceSets.main.resources.srcDir generateModMetadata
-// To avoid having to run "generateModMetadata" manually, make it run on every project reload
-neoForge.ideSyncTask generateModMetadata
+tasks.named('processResources').configure { finalizedBy 'copyModsToml' }
+classes.dependsOn copyModsToml
+
+// Allow duplicate META-INF/neoforge.mods.toml from classes and resources
+tasks.withType(Jar).configureEach { duplicatesStrategy = DuplicatesStrategy.EXCLUDE }
 
 // Example configuration to allow publishing using the maven-publish plugin
 publishing {

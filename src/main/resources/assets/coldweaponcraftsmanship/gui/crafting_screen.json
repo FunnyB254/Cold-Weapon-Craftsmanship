@@ -1,0 +1,17 @@
+{
+  "title_x": 129,
+  "title_y": 9,
+  "title_color": "0xFFFFFF",
+  "cycle_button": {
+    "x_offset": 104,
+    "y_offset": 36,
+    "width": 14,
+    "height": 14
+  },
+  "part_grid": {
+    "x_offset": 155,
+    "y_offset": 8,
+    "width": 54,
+    "height": 80
+  }
+}
