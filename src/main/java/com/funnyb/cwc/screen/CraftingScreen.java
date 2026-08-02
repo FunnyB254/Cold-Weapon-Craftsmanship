@@ -1,9 +1,13 @@
 package com.funnyb.cwc.screen;
 
 import com.funnyb.cwc.client.Layouts;
+import com.funnyb.cwc.crafting.PartDef;
+import com.funnyb.cwc.crafting.PartRegistry;
+import com.funnyb.cwc.crafting.PartStacks;
 import com.funnyb.cwc.menu.CraftingMenu;
 import com.funnyb.cwc.network.serverbound.CycleRecipePacket;
-import com.funnyb.cwc.registry.CwcItems;
+import com.funnyb.cwc.network.serverbound.SelectPartPacket;
+import com.funnyb.cwc.registry.CwcDataComponents;
 
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
@@ -12,6 +16,7 @@ import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.network.PacketDistributor;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -33,8 +38,12 @@ public class CraftingScreen extends BaseInventoryScreen<CraftingMenu> {
     private final IconGrid partGrid;
     /** 左侧材料列表 */
     private final IconGrid materialGrid;
-    /** 切换配方按钮——悬停时显示配方需求详情 */
+    /** 切换配方按钮 */
     private ImageButton cycleButton;
+    /** 帮助按钮 */
+    private ImageButton helpButton;
+    /** 返回按钮 */
+    private ImageButton backButton;
 
     public CraftingScreen(CraftingMenu menu, Inventory playerInventory, Component title) {
         super(menu, playerInventory, title, menu.inventoryLayout);
@@ -47,18 +56,37 @@ public class CraftingScreen extends BaseInventoryScreen<CraftingMenu> {
     protected void init() {
         super.init();
 
-        // 切换配方按钮——位置和尺寸从 JSON 布局读取
+        // 切换配方按钮
         var cb = Layouts.craftingScreen().cycle_button;
         cycleButton = this.addRenderableWidget(new ImageButton(
                 this.leftPos + cb.x_offset, this.topPos + cb.y_offset,
                 cb.width, cb.height,
                 () -> PacketDistributor.sendToServer(new CycleRecipePacket())));
 
-        // 零件列表——使用铁标准刃的贴图，悬停框显示标准刃的语言文件
-        ItemStack bladeStack = new ItemStack(CwcItems.PART.get());
-        bladeStack.set(net.minecraft.core.component.DataComponents.CUSTOM_NAME,
-                Component.translatable("type.cwc.standard_blade"));
-        partGrid.setItems(List.of(bladeStack));
+        // 帮助按钮——暂留空
+        helpButton = this.addRenderableWidget(new ImageButton(
+                this.leftPos + 212, this.topPos + 7, 16, 16, () -> {}));
+
+        // 返回按钮——回到选择界面
+        backButton = this.addRenderableWidget(new ImageButton(
+                this.leftPos + 230, this.topPos + 7, 16, 16,
+                () -> net.minecraft.client.Minecraft.getInstance()
+                        .setScreen(new CreativePartStarScreen())));
+
+        // 零件列表——从 PartRegistry 自动填充
+        partGrid.setItems(createPartStacks());
+        partGrid.onSelectionChanged(sel -> {
+            String typeId = sel.get(CwcDataComponents.PART_IDENTITY.get());
+            if (typeId != null) {
+                materialGrid.setItems(getMaterialVariants(typeId));
+            }
+        });
+        materialGrid.onSelectionChanged(sel -> {
+            String partId = sel.get(CwcDataComponents.PART_IDENTITY.get());
+            if (partId != null) {
+                PacketDistributor.sendToServer(new SelectPartPacket(partId));
+            }
+        });
     }
 
     @Override
@@ -98,21 +126,31 @@ public class CraftingScreen extends BaseInventoryScreen<CraftingMenu> {
                 || super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
     }
 
+    /** 渲染背景——先画 GUI 背景贴图，再画零件/材料列表（在 tooltip 之下） */
     @Override
-    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        super.render(guiGraphics, mouseX, mouseY, partialTick);
-
-        // 左侧材料列表
+    protected void renderBg(GuiGraphics guiGraphics, float partialTick, int mouseX, int mouseY) {
+        super.renderBg(guiGraphics, partialTick, mouseX, mouseY);
         materialGrid.setPosition(this.leftPos + 47, this.topPos + 8);
         materialGrid.render(guiGraphics, mouseX, mouseY);
 
-        // 右侧零件列表
         var gridLayout = Layouts.craftingScreen().part_grid;
         partGrid.setPosition(this.leftPos + gridLayout.x_offset, this.topPos + gridLayout.y_offset);
         partGrid.render(guiGraphics, mouseX, mouseY);
+    }
 
-        // tooltip（优先级：按钮 > 零件列表 > 材料列表 > 输入槽幽灵物品）
-        if (cycleButton.isHovered()) {
+    @Override
+    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+        // super.render() 内顺序：renderBg(背景+grid) → widgets → slots → tooltip
+        super.render(guiGraphics, mouseX, mouseY, partialTick);
+
+        // 自定义 tooltip（优先级：帮助/返回 > 切换按钮 > grid）覆盖在最上层
+        if (helpButton.isHovered()) {
+            guiGraphics.renderComponentTooltip(this.font,
+                    List.of(Component.translatable("tooltip.cwc.help")), mouseX, mouseY);
+        } else if (backButton.isHovered()) {
+            guiGraphics.renderComponentTooltip(this.font,
+                    List.of(Component.translatable("tooltip.cwc.back")), mouseX, mouseY);
+        } else if (cycleButton.isHovered()) {
             guiGraphics.renderComponentTooltip(this.font, buildRecipeTooltip(), mouseX, mouseY);
         } else {
             ItemStack hovered = partGrid.getHoveredItem(mouseX, mouseY);
@@ -122,7 +160,6 @@ public class CraftingScreen extends BaseInventoryScreen<CraftingMenu> {
             if (!hovered.isEmpty()) {
                 guiGraphics.renderTooltip(this.font, hovered, mouseX, mouseY);
             } else {
-                // 复用原版 hoveredSlot——不再手动遍历 hitbox
                 Slot inputSlot = getHoveredInputSlot();
                 if (inputSlot != null && inputSlot.hasItem()) {
                     guiGraphics.renderTooltip(this.font, inputSlot.getItem(), mouseX, mouseY);
@@ -145,10 +182,30 @@ public class CraftingScreen extends BaseInventoryScreen<CraftingMenu> {
     }
 
     /**
-     * 构建切换按钮的悬停提示——仅显示"切换配方"。
-     * 材料需求已通过输入槽的幽灵物品展示，无需在 tooltip 中重复。
+     * 构建切换按钮的悬停提示。
      */
     private List<Component> buildRecipeTooltip() {
         return List.of(Component.translatable("tooltip.coldweaponcraftsmanship.cycle_recipe"));
+    }
+
+    /** 从 PartRegistry 创建零件类型列表——每种类型去重只留一个（图标用代表材质） */
+    private List<ItemStack> createPartStacks() {
+        var seen = new java.util.HashSet<String>();
+        List<ItemStack> stacks = new ArrayList<>();
+        for (PartDef def : PartRegistry.getAllParts()) {
+            if (seen.add(def.typeId())) {
+                stacks.add(PartStacks.typeIcon(def.typeId()));
+            }
+        }
+        return stacks;
+    }
+
+    /** 选中零件类型后，列出该类型下所有材料变体 */
+    private List<ItemStack> getMaterialVariants(String typeId) {
+        List<ItemStack> variants = new ArrayList<>();
+        for (PartDef def : PartRegistry.getPartsByType(typeId)) {
+            variants.add(PartStacks.partIcon(def.id()));
+        }
+        return variants;
     }
 }

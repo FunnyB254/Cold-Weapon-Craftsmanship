@@ -1,75 +1,75 @@
 package com.funnyb.cwc.crafting;
 
-import com.funnyb.cwc.registry.CwcDataComponents;
-import com.funnyb.cwc.registry.CwcItems;
-
-import net.minecraft.core.component.DataComponents;
-import net.minecraft.network.chat.Component;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 零件配方注册中心。
- * <p>
- * 按零件类型分组存储所有配方。提供配方查询、库存检查和材料扣除功能。
- * <p>
- * 添加新零件配方只需在此类的配方列表中加入新条目。
+ * 零件配方工具类——库存检查、材料扣除、ItemStack 创建。
+ * 配方数据来自 PartDef.recipes()（JSON 内嵌）。
  */
 public final class PartRecipes {
 
-    /** 刃类零件配方列表——按放入顺序轮询 */
-    private static final List<PartRecipe> BLADE_RECIPES = List.of(
-            new PartRecipe(
-                    new ItemStack(Items.IRON_INGOT, 2),
-                    ItemStack.EMPTY,
-                    ItemStack.EMPTY,
-                    createPartStack(CwcItems.PART.get(), "cwc.standard_blade.iron")
-            )
-    );
-
-    /** 创建带 PART_IDENTITY 和显示名的零件 ItemStack */
-    private static ItemStack createPartStack(Item item, String identity) {
-        ItemStack stack = new ItemStack(item);
-        stack.set(CwcDataComponents.PART_IDENTITY.get(), identity);
-        stack.set(DataComponents.CUSTOM_NAME, Component.translatable("part." + identity));
-        return stack;
-    }
-
     private PartRecipes() {}
 
-    /** @return 所有刃类零件配方（不可变列表） */
-    public static List<PartRecipe> getBladeRecipes() {
-        return BLADE_RECIPES;
+    /** 将 IngredientDef 列表（含 null）转为 ItemStack 列表（含 EMPTY） */
+    public static List<ItemStack> toStacks(List<IngredientDef> ingredients) {
+        List<ItemStack> result = new ArrayList<>(3);
+        for (int i = 0; i < 3; i++) {
+            IngredientDef ing = (i < ingredients.size()) ? ingredients.get(i) : null;
+            if (ing == null) {
+                result.add(ItemStack.EMPTY);
+            } else {
+                result.add(ingredientToStack(ing));
+            }
+        }
+        return result;
     }
 
-    /**
-     * 检查玩家背包中是否有足够材料制造指定配方。
-     * 每个槽位的物品独立计数，不计入盔甲槽和副手。
-     */
-    public static boolean canCraft(Player player, PartRecipe recipe) {
+    // ingredientToStack 方法见下方 package-private 版本
+
+    /** 创建带 PART_IDENTITY、显示名和贴图路由的零件 ItemStack——委托 PartStacks 统一构建 */
+    public static ItemStack createPartStack(Item item, String identity) {
+        return PartStacks.build(item, identity, "part." + identity);
+    }
+
+    public static boolean canCraft(Player player, List<IngredientDef> ingredients) {
         Inventory inv = player.getInventory();
-        return hasEnough(inv, recipe.slot0())
-                && hasEnough(inv, recipe.slot1())
-                && hasEnough(inv, recipe.slot2());
+        for (IngredientDef ing : ingredients) {
+            if (ing == null) continue;
+            if (!hasEnough(inv, ingredientToStack(ing))) return false;
+        }
+        return true;
     }
 
-    /**
-     * 从玩家背包中扣除配方所需材料。
-     * 在调用前应已通过 {@link #canCraft} 确保材料充足。
-     */
-    public static void consumeMaterials(Player player, PartRecipe recipe) {
+    public static void consumeMaterials(Player player, List<IngredientDef> ingredients) {
+        consumeMaterials(player, ingredients, 1);
+    }
+
+    /** 批量消耗材料，count 为制造件数 */
+    public static void consumeMaterials(Player player, List<IngredientDef> ingredients, int count) {
         Inventory inv = player.getInventory();
-        consume(inv, recipe.slot0());
-        consume(inv, recipe.slot1());
-        consume(inv, recipe.slot2());
+        for (IngredientDef ing : ingredients) {
+            if (ing == null) continue;
+            ItemStack needed = ingredientToStack(ing);
+            needed.setCount(needed.getCount() * count);
+            consume(inv, needed);
+        }
     }
 
-    /** 检查背包中是否有足够数量的指定物品（空 ItemStack 视为不需要） */
+    /** 将 IngredientDef 转为 ItemStack */
+    public static ItemStack ingredientToStack(IngredientDef ing) {
+        if (ing.item() == null) return ItemStack.EMPTY;
+        Item item = BuiltInRegistries.ITEM.get(ResourceLocation.parse(ing.item()));
+        return new ItemStack(item != null ? item : net.minecraft.world.item.Items.BARRIER, ing.count());
+    }
+
     private static boolean hasEnough(Inventory inv, ItemStack needed) {
         if (needed.isEmpty()) return true;
         int remaining = needed.getCount();
@@ -82,7 +82,6 @@ public final class PartRecipes {
         return remaining <= 0;
     }
 
-    /** 从背包中扣除指定数量的物品 */
     private static void consume(Inventory inv, ItemStack needed) {
         if (needed.isEmpty()) return;
         int remaining = needed.getCount();

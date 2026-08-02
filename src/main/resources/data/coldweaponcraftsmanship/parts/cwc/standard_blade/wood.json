@@ -4,5 +4,14 @@
     "damage": 2.0,
     "speed": 0.4,
     "durability": 30
-  }
+  },
+  "recipes": [
+    {
+      "ingredients": [
+        null,
+        { "item": "minecraft:stick", "count": 3 },
+        null
+      ]
+    }
+  ]
 }

@@ -10,19 +10,50 @@
   "tooltip.coldweaponcraftsmanship.recipe_output": "→ %s",
   "tooltip.coldweaponcraftsmanship.recipe_loading": "Loading...",
 
+  "tooltip.cwc.help": "Help",
+  "tooltip.cwc.back": "Back",
+
   "type.cwc.standard_blade": "Standard Blade",
   "type.cwc.one_handed_sword_handle": "One-Handed Sword Handle",
+  "type.cwc.light_guard": "Light Guard",
+  "type.cwc.light_pommel": "Light Pommel",
 
   "material.cwc.iron": "Iron",
   "material.cwc.wood": "Wood",
+  "material.cwc.gold": "Gold",
 
   "part.cwc.standard_blade.iron": "Iron Standard Blade",
   "part.cwc.standard_blade.wood": "Wooden Standard Blade",
+  "part.cwc.standard_blade.gold": "Golden Standard Blade",
+  "part.cwc.light_guard.iron": "Iron Light Guard",
   "part.cwc.one_handed_sword_handle.wood": "Wooden One-Handed Sword Handle",
+  "part.cwc.light_pommel.iron": "Iron Light Pommel",
 
   "slot.cwc.blade": "Blade Slot",
   "slot.cwc.guard": "Guard Slot",
   "slot.cwc.pommel": "Pommel Slot",
+  "slot.cwc.ornament": "Ornament Slot",
+
+  "type.cwc": "Type",
+  "type.cwc.attack": "Attack",
+  "type.cwc.guard": "Guard",
+  "type.cwc.pommel": "Pommel",
+  "type.cwc.ornament": "Ornament",
+
+  "mount.cwc": "Mount",
+  "mount.cwc.tang": "Tang",
+  "mount.cwc.socket": "Socket",
+
+  "weight.cwc": "Weight",
+  "weight.cwc.light": "Light",
+  "weight.cwc.middle": "Medium",
+  "weight.cwc.heavy": "Heavy",
+
+  "tooltip.cwc.slot_requires": "Detailed Requirements:",
+  "tooltip.cwc.bullet": " - ",
+  "tooltip.cwc.colon": ": ",
+  "tooltip.cwc.separator": "/",
+  "assembling.no_slots": "No available slots",
 
   "grid.cwc.part_list": "Part List",
   "grid.cwc.material_list": "Material List"

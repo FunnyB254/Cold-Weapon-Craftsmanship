@@ -21,12 +21,12 @@ public class DefaultParser extends BaseParser {
     private static final Gson GSON = new GsonBuilder()
             .registerTypeAdapter(Integer.class, (JsonDeserializer<Integer>) (json, type, ctx) -> {
                 if (json.isJsonPrimitive() && json.getAsJsonPrimitive().isString())
-                    return Integer.decode(json.getAsString());
+                    return (int) Long.decode(json.getAsString()).longValue();
                 return json.getAsInt();
             })
             .registerTypeAdapter(int.class, (JsonDeserializer<Integer>) (json, type, ctx) -> {
                 if (json.isJsonPrimitive() && json.getAsJsonPrimitive().isString())
-                    return Integer.decode(json.getAsString());
+                    return (int) Long.decode(json.getAsString()).longValue();
                 return json.getAsInt();
             })
             .create();
@@ -40,8 +40,9 @@ public class DefaultParser extends BaseParser {
             try (Reader reader = resource.openAsReader()) {
                 JsonType jt = GSON.fromJson(reader, JsonType.class);
                 return new PartTypeDef(id, jt.data != null ? jt.data : Map.of(),
-                        jt.slots != null ? jt.slots : List.of(),
-                        jt.position != null ? jt.position : null);
+                        normalizeSlots(jt.slots),
+                        jt.position != null ? jt.position : null,
+                        jt.layer);
             }
         } catch (Exception e) {
             ColdWeaponCraftsmanship.LOGGER.error("Failed to parse type {}", location, e);
@@ -56,10 +57,8 @@ public class DefaultParser extends BaseParser {
             try (Reader reader = resource.openAsReader()) {
                 JsonPart jp = GSON.fromJson(reader, JsonPart.class);
                 String parser = jp.parser != null ? jp.parser : "cwc:default";
-                @SuppressWarnings("unchecked")
-                Map<String, Object> data = jp.data != null
-                        ? (Map<String, Object>) (Map<?, ?>) jp.data : Map.of();
-                return PartDef.of(id, parser, data);
+                Map<String, Object> data = jp.data != null ? jp.data : Map.of();
+                return PartDef.of(id, parser, data, parseRecipes(jp.recipes));
             }
         } catch (Exception e) {
             ColdWeaponCraftsmanship.LOGGER.error("Failed to parse part {}", location, e);
@@ -67,10 +66,24 @@ public class DefaultParser extends BaseParser {
         }
     }
 
+    /** 规范化槽位：scale 为 null 时替换为空 Map，避免消费方碰到 null；position 原样透传 */
+    private static List<PartTypeDef.SlotDef> normalizeSlots(List<PartTypeDef.SlotDef> slots) {
+        if (slots == null) return List.of();
+        return slots.stream()
+                .map(s -> new PartTypeDef.SlotDef(s.name(), s.constraint(),
+                        s.scale() != null ? s.scale() : Map.of(), s.position()))
+                .toList();
+    }
+
     private static class JsonType {
         Map<String, String> data;
         List<PartTypeDef.SlotDef> slots;
         PartTypeDef.Position position;
+        Double layer;
     }
-    private static class JsonPart { String parser; Map<String, Double> data; }
+    private static class JsonPart {
+        String parser;
+        Map<String, Object> data;
+        List<JsonRecipe> recipes;
+    }
 }

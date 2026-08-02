@@ -1,7 +1,6 @@
 package com.funnyb.cwc.client;
 
 import com.funnyb.cwc.ColdWeaponCraftsmanship;
-import com.funnyb.cwc.crafting.PartRegistry;
 import com.funnyb.cwc.screen.CwcScreen;
 
 import net.minecraft.client.Minecraft;
@@ -38,12 +37,14 @@ public class CwcClientEvents {
         }
     }
 
-    /** 资源重载时刷新 Layouts 缓存和 PartRegistry */
+    /**
+     * 资源重载时只刷新 Layouts 缓存。
+     * PartRegistry 数据由服务端 datapack 加载（{@link ColdWeaponCraftsmanship} 服务端事件），
+     * 客户端资源管理器不含 data/，重载会把共享注册表清空（F3+T 后制造界面列表变空），故不在此重载。
+     */
     @SubscribeEvent
     public static void onRegisterReloadListeners(RegisterClientReloadListenersEvent event) {
-        event.registerReloadListener((ResourceManagerReloadListener) manager -> {
-            Layouts.invalidate();
-            PartRegistry.reload(manager);
-        });
+        event.registerReloadListener((ResourceManagerReloadListener) manager -> Layouts.invalidate());
     }
+
 }

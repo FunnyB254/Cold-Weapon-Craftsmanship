@@ -2,8 +2,10 @@ package com.funnyb.cwc.registry;
 
 import com.funnyb.cwc.ColdWeaponCraftsmanship;
 import com.funnyb.cwc.item.CreativePartStar;
+import com.funnyb.cwc.item.CwcWeapon;
 
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Tiers;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.registries.DeferredItem;
 import net.neoforged.neoforge.registries.DeferredRegister;
@@ -25,9 +27,9 @@ public class CwcItems {
     public static final DeferredItem<Item> PART = ITEMS.register("part",
             () -> new Item(new Item.Properties().stacksTo(1)));
 
-    /** 手柄类零件——接收其他零件 */
+    /** 手柄类零件——接收其他零件，作为组装武器的属性聚合终点 */
     public static final DeferredItem<Item> HANDLE_PART = ITEMS.register("handle_part",
-            () -> new Item(new Item.Properties().stacksTo(1)));
+            () -> new CwcWeapon(Tiers.IRON, new Item.Properties().stacksTo(1)));
 
     /** 将物品注册器绑定到模组事件总线 */
     public static void init(IEventBus modEventBus) {

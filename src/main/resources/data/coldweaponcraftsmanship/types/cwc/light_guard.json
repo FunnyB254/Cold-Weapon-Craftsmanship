@@ -1,0 +1,10 @@
+{
+  "parser": "cwc:default",
+  "data": {
+    "type": "guard",
+    "weight": "light"
+  },
+  "position": { "x": 6, "y": 9 },
+  "layer": 1200,
+  "slots": []
+}

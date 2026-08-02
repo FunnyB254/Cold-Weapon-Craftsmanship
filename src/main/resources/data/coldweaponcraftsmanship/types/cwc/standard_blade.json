@@ -5,7 +5,8 @@
     "mount": "tang",
     "weight": "middle"
   },
-  "position": { "x": 5, "y": -10 },
+  "position": { "x": 5, "y": 10 },
+  "layer": 900,
   "slots": [
     {
       "name": "slot.cwc.guard",
@@ -13,7 +14,7 @@
         "type": ["guard"],
         "weight": ["light", "middle"]
       },
-      "scale": { "damage": 0.0, "speed": 0.0, "durability": 0.1 }
+      "position": { "x": 6, "y": 9 }
     }
   ]
 }

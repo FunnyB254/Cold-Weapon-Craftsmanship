@@ -1,3 +1,12 @@
 {
-  "parser": "cwc:handle"
+  "parser": "cwc:handle",
+  "recipes": [
+    {
+      "ingredients": [
+        null,
+        { "item": "minecraft:stick", "count": 2 },
+        null
+      ]
+    }
+  ]
 }

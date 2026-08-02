@@ -1,7 +1,7 @@
 package com.funnyb.cwc.screen;
 
-import com.funnyb.cwc.ColdWeaponCraftsmanship;
 import com.funnyb.cwc.client.Layouts;
+import com.funnyb.cwc.network.serverbound.OpenAssemblingPacket;
 import com.funnyb.cwc.network.serverbound.OpenCraftingPacket;
 
 import net.minecraft.client.gui.GuiGraphics;
@@ -50,7 +50,7 @@ public class CreativePartStarScreen extends Screen implements CwcScreen {
         this.addRenderableWidget(new ImageButton(
                 left + lay.button_assemble.x_offset, top + lay.button_assemble.y_offset,
                 lay.button_assemble.width, lay.button_assemble.height,
-                () -> ColdWeaponCraftsmanship.LOGGER.info("Creative Part Star: Assemble button pressed")));
+                () -> PacketDistributor.sendToServer(new OpenAssemblingPacket())));
     }
 
     /**

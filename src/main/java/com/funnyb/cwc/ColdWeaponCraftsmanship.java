@@ -8,6 +8,7 @@ import com.funnyb.cwc.registry.CwcCreativeTabs;
 import com.funnyb.cwc.registry.CwcDataComponents;
 import com.funnyb.cwc.registry.CwcItems;
 import com.funnyb.cwc.registry.CwcMenuTypes;
+import com.funnyb.cwc.screen.AssemblingScreen;
 import com.funnyb.cwc.screen.CraftingScreen;
 
 import net.neoforged.api.distmarker.Dist;
@@ -76,6 +77,7 @@ public class ColdWeaponCraftsmanship {
         @SubscribeEvent
         static void onRegisterScreens(RegisterMenuScreensEvent event) {
             event.register(CwcMenuTypes.CRAFTING.get(), CraftingScreen::new);
+            event.register(CwcMenuTypes.ASSEMBLING.get(), AssemblingScreen::new);
         }
     }
 }

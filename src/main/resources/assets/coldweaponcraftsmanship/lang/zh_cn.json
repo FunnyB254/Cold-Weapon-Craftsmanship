@@ -10,19 +10,50 @@
   "tooltip.coldweaponcraftsmanship.recipe_output": "→ %s",
   "tooltip.coldweaponcraftsmanship.recipe_loading": "加载中...",
 
+  "tooltip.cwc.help": "帮助",
+  "tooltip.cwc.back": "返回",
+
   "type.cwc.standard_blade": "标准刃",
   "type.cwc.one_handed_sword_handle": "单手剑柄",
+  "type.cwc.light_guard": "轻护手",
+  "type.cwc.light_pommel": "轻配重",
 
   "material.cwc.iron": "铁",
   "material.cwc.wood": "木",
+  "material.cwc.gold": "金",
 
   "part.cwc.standard_blade.iron": "铁标准刃",
   "part.cwc.standard_blade.wood": "木标准刃",
+  "part.cwc.standard_blade.gold": "金标准刃",
+  "part.cwc.light_guard.iron": "铁轻护手",
   "part.cwc.one_handed_sword_handle.wood": "木单手剑柄",
+  "part.cwc.light_pommel.iron": "铁轻配重",
 
   "slot.cwc.blade": "刃槽",
   "slot.cwc.guard": "镡槽",
   "slot.cwc.pommel": "柄尾槽",
+  "slot.cwc.ornament": "饰槽",
+
+  "type.cwc": "类型",
+  "type.cwc.attack": "攻击部",
+  "type.cwc.guard": "护手",
+  "type.cwc.pommel": "配重",
+  "type.cwc.ornament": "饰件",
+
+  "mount.cwc": "安装方式",
+  "mount.cwc.tang": "铤装",
+  "mount.cwc.socket": "銎装",
+
+  "weight.cwc": "重量",
+  "weight.cwc.light": "轻型",
+  "weight.cwc.middle": "中型",
+  "weight.cwc.heavy": "重型",
+
+  "tooltip.cwc.slot_requires": "详细需求：",
+  "tooltip.cwc.bullet": " - ",
+  "tooltip.cwc.colon": "：",
+  "tooltip.cwc.separator": "/",
+  "assembling.no_slots": "无可用槽位",
 
   "grid.cwc.part_list": "零件列表",
   "grid.cwc.material_list": "材料列表"

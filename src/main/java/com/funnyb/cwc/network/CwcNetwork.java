@@ -1,9 +1,14 @@
 package com.funnyb.cwc.network;
 
 import com.funnyb.cwc.ColdWeaponCraftsmanship;
+import com.funnyb.cwc.menu.AssemblingMenu;
 import com.funnyb.cwc.menu.CraftingMenu;
 import com.funnyb.cwc.network.serverbound.CycleRecipePacket;
+import com.funnyb.cwc.network.serverbound.OpenAssemblingPacket;
 import com.funnyb.cwc.network.serverbound.OpenCraftingPacket;
+import com.funnyb.cwc.network.serverbound.RenamePartPacket;
+import com.funnyb.cwc.network.serverbound.SelectPartPacket;
+import com.funnyb.cwc.network.serverbound.SetScrollPacket;
 
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.SimpleMenuProvider;
@@ -33,10 +38,6 @@ public class CwcNetwork {
                         player.openMenu(new SimpleMenuProvider(
                                 (containerId, inventory, player1) -> new CraftingMenu(containerId, inventory),
                                 CraftingMenu.TITLE));
-                        // 界面打开后立即初始化配方显示
-                        if (player.containerMenu instanceof CraftingMenu menu) {
-                            menu.initRecipes();
-                        }
                     }
                 });
 
@@ -51,5 +52,54 @@ public class CwcNetwork {
                         }
                     }
                 });
+
+        // 客户端→服务端：选中材料变体
+        registrar.playToServer(
+                SelectPartPacket.TYPE,
+                SelectPartPacket.STREAM_CODEC,
+                (payload, ctx) -> {
+                    if (ctx.player() instanceof ServerPlayer player) {
+                        if (player.containerMenu instanceof CraftingMenu menu) {
+                            menu.selectPart(payload.partId());
+                        }
+                    }
+                });
+
+        // 客户端→服务端：打开装配界面
+        registrar.playToServer(
+                OpenAssemblingPacket.TYPE,
+                OpenAssemblingPacket.STREAM_CODEC,
+                (payload, ctx) -> {
+                    if (ctx.player() instanceof ServerPlayer player) {
+                        player.openMenu(new SimpleMenuProvider(
+                                (containerId, inventory, player1) -> new AssemblingMenu(containerId, inventory),
+                                AssemblingMenu.TITLE));
+                    }
+                });
+
+        // 客户端→服务端：改名
+        registrar.playToServer(
+                RenamePartPacket.TYPE,
+                RenamePartPacket.STREAM_CODEC,
+                (payload, ctx) -> {
+                    if (ctx.player() instanceof ServerPlayer player) {
+                        if (player.containerMenu instanceof AssemblingMenu menu) {
+                            menu.renameItem(payload.newName());
+                        }
+                    }
+                });
+
+        // 客户端→服务端：零件列表滚动行数同步
+        registrar.playToServer(
+                SetScrollPacket.TYPE,
+                SetScrollPacket.STREAM_CODEC,
+                (payload, ctx) -> {
+                    if (ctx.player() instanceof ServerPlayer player) {
+                        if (player.containerMenu instanceof AssemblingMenu menu) {
+                            menu.setScrollRows(payload.scrollRows());
+                        }
+                    }
+                });
+
     }
 }

@@ -1,0 +1,31 @@
+{
+  "name_field": {
+    "x_offset": 48,
+    "y_offset": 10,
+    "width": 160,
+    "height": 12
+  },
+  "slot_list": {
+    "x_offset": 115,
+    "y_offset": 22,
+    "width": 93,
+    "height": 66,
+    "row_height": 22,
+    "scrollbar_width": 6,
+    "frame": {
+      "x_offset": 3,
+      "y_offset": 3,
+      "size": 18
+    },
+    "info": {
+      "x_offset": 23,
+      "y_offset": 5,
+      "size": 12,
+      "hover_color": "0x40FFFFFF"
+    },
+    "text": {
+      "x_offset": 37,
+      "y_offset": 7
+    }
+  }
+}

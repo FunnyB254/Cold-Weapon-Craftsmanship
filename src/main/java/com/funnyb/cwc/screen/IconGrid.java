@@ -49,6 +49,8 @@ public class IconGrid {
 
     /** 当前选中物品的索引，-1 表示未选中 */
     private int selectedIndex = -1;
+    /** 选择变更回调 */
+    private java.util.function.Consumer<ItemStack> onSelectionChanged;
 
     public IconGrid(String name, int x, int y, int width, int height) {
         this.name = name;
@@ -69,6 +71,10 @@ public class IconGrid {
         this.items = items;
         this.scrollOffset = 0;
         this.selectedIndex = -1;
+    }
+
+    public void onSelectionChanged(java.util.function.Consumer<ItemStack> callback) {
+        this.onSelectionChanged = callback;
     }
 
     /** @return 当前选中的物品，未选中时返回 EMPTY */
@@ -132,6 +138,7 @@ public class IconGrid {
                 ItemStack sel = items.get(idx);
                 ColdWeaponCraftsmanship.LOGGER.info("[{}] selected: [{}] {}",
                         name, idx, sel.getHoverName().getString());
+                if (onSelectionChanged != null) onSelectionChanged.accept(sel);
                 return true;
             }
         }

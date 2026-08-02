@@ -5,13 +5,12 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonDeserializer;
 
-import com.funnyb.cwc.ColdWeaponCraftsmanship;
-
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.server.packs.resources.ResourceManager;
 
 import java.io.Reader;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -22,12 +21,12 @@ public class MetalParser extends BaseParser {
     private static final Gson GSON = new GsonBuilder()
             .registerTypeAdapter(Integer.class, (JsonDeserializer<Integer>) (json, type, ctx) -> {
                 if (json.isJsonPrimitive() && json.getAsJsonPrimitive().isString())
-                    return Integer.decode(json.getAsString());
+                    return (int) Long.decode(json.getAsString()).longValue();
                 return json.getAsInt();
             })
             .registerTypeAdapter(int.class, (JsonDeserializer<Integer>) (json, type, ctx) -> {
                 if (json.isJsonPrimitive() && json.getAsJsonPrimitive().isString())
-                    return Integer.decode(json.getAsString());
+                    return (int) Long.decode(json.getAsString()).longValue();
                 return json.getAsInt();
             })
             .create();
@@ -49,7 +48,7 @@ public class MetalParser extends BaseParser {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> data = jp.data != null
                         ? (Map<String, Object>) (Map<?, ?>) jp.data : Map.of();
-                return PartDef.of(id, "cwc:metal", data);
+                return PartDef.of(id, "cwc:metal", data, parseRecipes(jp.recipes));
             }
         } catch (Exception e) {
             ColdWeaponCraftsmanship.LOGGER.error("Failed to parse metal part {}", location, e);
@@ -57,10 +56,9 @@ public class MetalParser extends BaseParser {
         }
     }
 
-    public double evaluate(Formula f, double hardness, double toughness) {
-        return f.base + f.hardnessMultiplier * hardness + f.toughnessMultiplier * toughness;
-    }
-
     public static class Formula { public double base, hardnessMultiplier, toughnessMultiplier; }
-    private static class JsonMetalPart { Map<String, Formula> data; }
+    private static class JsonMetalPart {
+        Map<String, Formula> data;
+        List<JsonRecipe> recipes;
+    }
 }

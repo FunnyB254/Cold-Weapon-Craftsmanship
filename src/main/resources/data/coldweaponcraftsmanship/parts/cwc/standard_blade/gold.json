@@ -1,0 +1,17 @@
+{
+  "parser": "cwc:default",
+  "data": {
+    "damage": 2.5,
+    "speed": 0.35,
+    "durability": 35
+  },
+  "recipes": [
+    {
+      "ingredients": [
+        null,
+        { "item": "minecraft:gold_ingot", "count": 2 },
+        null
+      ]
+    }
+  ]
+}

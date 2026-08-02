@@ -37,13 +37,13 @@ public final class Layouts {
     private static final Gson GSON = new GsonBuilder()
             .registerTypeAdapter(Integer.class, (JsonDeserializer<Integer>) (json, type, ctx) -> {
                 if (json.isJsonPrimitive() && json.getAsJsonPrimitive().isString()) {
-                    return Integer.decode(json.getAsString());
+                    return (int) Long.decode(json.getAsString()).longValue();
                 }
                 return json.getAsInt();
             })
             .registerTypeAdapter(int.class, (JsonDeserializer<Integer>) (json, type, ctx) -> {
                 if (json.isJsonPrimitive() && json.getAsJsonPrimitive().isString()) {
-                    return Integer.decode(json.getAsString());
+                    return (int) Long.decode(json.getAsString()).longValue();
                 }
                 return json.getAsInt();
             })
@@ -57,6 +57,7 @@ public final class Layouts {
     private static InventoryLayout inventoryLayout;
     private static BaseInventoryScreen baseInventoryScreen;
     private static ImageButton imageButton;
+    private static AssemblingScreenLayout assemblingScreen;
 
     private Layouts() {}
 
@@ -69,6 +70,7 @@ public final class Layouts {
         inventoryLayout = null;
         baseInventoryScreen = null;
         imageButton = null;
+        assemblingScreen = null;
     }
 
     // ═══════════════════════════════════════════
@@ -115,6 +117,12 @@ public final class Layouts {
     public static ImageButton imageButton() {
         if (imageButton == null) imageButton = load("gui/image_button.json", ImageButton.class);
         return imageButton;
+    }
+
+    /** @return 装配界面布局 */
+    public static AssemblingScreenLayout assemblingScreen() {
+        if (assemblingScreen == null) assemblingScreen = load("gui/assembling_screen.json", AssemblingScreenLayout.class);
+        return assemblingScreen;
     }
 
     // ═══════════════════════════════════════════
@@ -274,6 +282,67 @@ public final class Layouts {
         public double item_scale_denominator = 16.0;
         public double item_offset_x = 1.0;
         public double item_offset_y = 1.0;
+    }
+
+    // ──── 组装界面 ────
+
+    public static class AssemblingScreenLayout {
+        public NameFieldDef name_field = new NameFieldDef();
+        public SlotListDef slot_list = new SlotListDef();
+        public AssemblingScreenLayout() {
+            name_field.x_offset = 48;
+            name_field.y_offset = 10;
+            name_field.width = 160;
+            name_field.height = 12;
+            slot_list.x_offset = 115;
+            slot_list.y_offset = 22;
+            slot_list.width = 93;
+            slot_list.height = 66;
+            slot_list.row_height = 22;
+            slot_list.scrollbar_width = 6;
+            slot_list.frame.x_offset = 2;
+            slot_list.frame.y_offset = 2;
+            slot_list.frame.size = 18;
+            slot_list.info.x_offset = 23;
+            slot_list.info.y_offset = 5;
+            slot_list.info.size = 12;
+            slot_list.info.hover_color = 0x40FFFFFF;
+            slot_list.text.x_offset = 37;
+            slot_list.text.y_offset = 7;
+        }
+    }
+
+    public static class NameFieldDef {
+        public int x_offset, y_offset, width, height;
+        public NameFieldDef() {}
+    }
+
+    /** 零件改造列表（SlotList）布局 */
+    public static class SlotListDef {
+        public int x_offset, y_offset, width, height;
+        public int row_height, scrollbar_width;
+        public FrameDef frame = new FrameDef();
+        public InfoDef info = new InfoDef();
+        public TextDef text = new TextDef();
+        public SlotListDef() {}
+    }
+
+    /** 物品框 */
+    public static class FrameDef {
+        public int x_offset, y_offset, size;
+        public FrameDef() {}
+    }
+
+    /** 详情控件 */
+    public static class InfoDef {
+        public int x_offset, y_offset, size, hover_color;
+        public InfoDef() {}
+    }
+
+    /** 槽位名称文本 */
+    public static class TextDef {
+        public int x_offset, y_offset;
+        public TextDef() {}
     }
 
     // ──── 透明按钮 ────
