@@ -1,6 +1,7 @@
 package com.funnyb.cwc.client;
 
 import com.funnyb.cwc.ColdWeaponCraftsmanship;
+import com.funnyb.cwc.client.renderer.AssembledWeaponRenderer;
 import com.funnyb.cwc.screen.CwcScreen;
 
 import net.minecraft.client.Minecraft;
@@ -38,13 +39,17 @@ public class CwcClientEvents {
     }
 
     /**
-     * 资源重载时只刷新 Layouts 缓存。
+     * 资源重载（F3+T）后刷新 Layouts 缓存、清空武器合成缓存（含顶点网格与动态纹理）。
+     * 注意：此事件在 game bus（NeoForge.EVENT_BUS）触发，订阅类不能用 Bus.MOD。
      * PartRegistry 数据由服务端 datapack 加载（{@link ColdWeaponCraftsmanship} 服务端事件），
      * 客户端资源管理器不含 data/，重载会把共享注册表清空（F3+T 后制造界面列表变空），故不在此重载。
      */
     @SubscribeEvent
     public static void onRegisterReloadListeners(RegisterClientReloadListenersEvent event) {
-        event.registerReloadListener((ResourceManagerReloadListener) manager -> Layouts.invalidate());
+        event.registerReloadListener((ResourceManagerReloadListener) manager -> {
+            Layouts.invalidate();
+            AssembledWeaponRenderer.clearCache();
+        });
     }
 
 }

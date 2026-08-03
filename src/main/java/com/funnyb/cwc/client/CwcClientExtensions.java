@@ -6,11 +6,9 @@ import com.funnyb.cwc.registry.CwcItems;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.BlockEntityWithoutLevelRenderer;
-import net.minecraft.server.packs.resources.ResourceManagerReloadListener;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.client.event.RegisterClientReloadListenersEvent;
 import net.neoforged.neoforge.client.extensions.common.IClientItemExtensions;
 import net.neoforged.neoforge.client.extensions.common.RegisterClientExtensionsEvent;
 
@@ -40,10 +38,4 @@ public class CwcClientExtensions {
         }, CwcItems.HANDLE_PART.get(), CwcItems.PART.get());
     }
 
-    /** 资源重载（F3+T）后清空合成贴图缓存——动态纹理被纹理管理器释放，需重建 */
-    @SubscribeEvent
-    public static void onRegisterReloadListeners(RegisterClientReloadListenersEvent event) {
-        event.registerReloadListener(
-                (ResourceManagerReloadListener) resourceManager -> AssembledWeaponRenderer.clearCache());
-    }
 }
