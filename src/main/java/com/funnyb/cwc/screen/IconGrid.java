@@ -18,7 +18,7 @@ import java.util.function.Consumer;
  *   <li>格子排列（列数可配），每个格子渲染一个 ItemStack 图标</li>
  *   <li>鼠标滚轮上下滚动，拖拽滚动条滑块快速跳转</li>
  *   <li>点击图标选中零件——选中后显示 select.png 覆盖层并打印日志</li>
- *   <li>enableScissor 裁剪超出区域，不污染相邻 GUI 区域</li>
+ *   <li>不裁剪溢出：允许零件贴图超出 16×16 格子完整显示（如 32×32 手半剑），溢出部分可能覆盖相邻格子/背景</li>
  *   <li>悬停检测仅在网格可见区域内生效（防止列表外误触发 tooltip）</li>
  * </ul>
  * 列数、图标尺寸、行高、滑块尺寸从 assets/cwc/gui/icon_grid.json 读取，资源包可覆盖。
@@ -189,8 +189,7 @@ public class IconGrid {
     // ──── 渲染 ────
 
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY) {
-        guiGraphics.enableScissor(x, y, x + width, y + height);
-
+        // 不裁剪：允许贴图超出格子完整显示（如 32×32 手半剑），滚动滚出的残影随之可见属预期
         int rows = rows();
         int cs = cols();
         int is = iconSize();
@@ -209,8 +208,6 @@ public class IconGrid {
                 }
             }
         }
-
-        guiGraphics.disableScissor();
 
         // 滚动条滑块
         int ms = maxScroll();
