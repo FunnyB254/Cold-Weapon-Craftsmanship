@@ -14,6 +14,7 @@
   "tooltip.cwc.back": "Back",
 
   "type.cwc.standard_blade": "Standard Blade",
+  "type.cwc.half_sword": "Hand-and-a-Half Blade",
   "type.cwc.one_handed_sword_handle": "One-Handed Sword Handle",
   "type.cwc.light_guard": "Light Guard",
   "type.cwc.light_pommel": "Light Pommel",
@@ -25,6 +26,7 @@
   "part.cwc.standard_blade.iron": "Iron Standard Blade",
   "part.cwc.standard_blade.wood": "Wooden Standard Blade",
   "part.cwc.standard_blade.gold": "Golden Standard Blade",
+  "part.cwc.half_sword.iron": "Iron Hand-and-a-Half Blade",
   "part.cwc.light_guard.iron": "Iron Light Guard",
   "part.cwc.one_handed_sword_handle.wood": "Wooden One-Handed Sword Handle",
   "part.cwc.light_pommel.iron": "Iron Light Pommel",

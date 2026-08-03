@@ -1,0 +1,20 @@
+{
+  "parser": "cwc:default",
+  "data": {
+    "type": "attack",
+    "mount": "tang",
+    "weight": "middle"
+  },
+  "position": { "x": 5, "y": 26 },
+  "layer": 900,
+  "slots": [
+    {
+      "name": "slot.cwc.guard",
+      "constraint": {
+        "type": ["guard"],
+        "weight": ["light", "middle"]
+      },
+      "position": { "x": 6, "y": 25 }
+    }
+  ]
+}

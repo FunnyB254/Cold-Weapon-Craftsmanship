@@ -14,6 +14,7 @@
   "tooltip.cwc.back": "返回",
 
   "type.cwc.standard_blade": "标准刃",
+  "type.cwc.half_sword": "手半剑刃",
   "type.cwc.one_handed_sword_handle": "单手剑柄",
   "type.cwc.light_guard": "轻护手",
   "type.cwc.light_pommel": "轻配重",
@@ -25,6 +26,7 @@
   "part.cwc.standard_blade.iron": "铁标准刃",
   "part.cwc.standard_blade.wood": "木标准刃",
   "part.cwc.standard_blade.gold": "金标准刃",
+  "part.cwc.half_sword.iron": "铁手半剑刃",
   "part.cwc.light_guard.iron": "铁轻护手",
   "part.cwc.one_handed_sword_handle.wood": "木单手剑柄",
   "part.cwc.light_pommel.iron": "铁轻配重",

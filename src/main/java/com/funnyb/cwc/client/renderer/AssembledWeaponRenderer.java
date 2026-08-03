@@ -57,10 +57,122 @@ public class AssembledWeaponRenderer extends BlockEntityWithoutLevelRenderer {
     /** 合成贴图缓存：装配键 → 合成体 */
     private static final Map<String, WeaponComposite> COMPOSITES = new HashMap<>();
 
-    /** 合成体：CPU 图片 + 动态纹理路径 + 渲染类型 + 模型包围盒 */
-    private record WeaponComposite(NativeImage image, ResourceLocation texPath, RenderType renderType,
-                                   float bx0, float by0, float bx1, float by1) {
+    /**
+     * 合成体：CPU 图片 + 动态纹理路径 + 渲染类型 + 模型包围盒 + 顶点网格缓存。
+     * CACHE: 网格构建（逐像素双循环 + 邻域判断）只在贴图变更时执行一次，渲染时直接遍历缓存顶点。
+     */
+    private static final class WeaponComposite {
+        private final NativeImage image;
+        private final ResourceLocation texPath;
+        private final RenderType renderType;
+        private final float bx0, by0, bx1, by1;
+
+        /** CACHE: 构建好的顶点数据（模型空间坐标，渲染时经姿态矩阵变换） */
+        private final List<CachedVertex> cachedVertices = new ArrayList<>();
+        /** CACHE: 缓存脏标记——true 表示需要重建网格 */
+        private boolean dirty = true;
+
+        WeaponComposite(NativeImage image, ResourceLocation texPath, RenderType renderType,
+                        float bx0, float by0, float bx1, float by1) {
+            this.image = image;
+            this.texPath = texPath;
+            this.renderType = renderType;
+            this.bx0 = bx0;
+            this.by0 = by0;
+            this.bx1 = bx1;
+            this.by1 = by1;
+        }
+
+        RenderType renderType() { return renderType; }
+        /** CACHE: 顶点缓存 */
+        List<CachedVertex> cachedVertices() { return cachedVertices; }
+        /** CACHE: 是否需重建网格 */
+        boolean dirty() { return dirty; }
+
+        /** CACHE: 贴图/几何变更时标记缓存失效并清空，下次渲染时重建 */
+        void markDirty() {
+            dirty = true;
+            cachedVertices.clear();
+        }
+
+        /**
+         * CACHE: 构建网格——把原 renderComposite 的逐像素双循环 + 邻域判断搬到此处，
+         * 顶点数据（位置/UV/法线/颜色）一次性算好存入 cachedVertices，数值与原实现完全一致。
+         */
+        void buildMesh() {
+            cachedVertices.clear();
+            int w = image.getWidth();
+            int h = image.getHeight();
+            float pw = (bx1 - bx0) / w;   // 单像素模型宽
+            float ph = (by1 - by0) / h;   // 单像素模型高
+            float uw = 1f / w;            // 单像素 UV 宽
+            float vh = 1f / h;            // 单像素 UV 高
+
+            // 正面（SOUTH 面）：逆时针绕序，法线 +Z，UV 顶 v0 在模型顶部（y=by1）
+            add(bx0, by1, FRONT_Z, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f);
+            add(bx0, by0, FRONT_Z, 0f, 1f, 0f, 0f, 1f, 1f, 1f, 1f);
+            add(bx1, by0, FRONT_Z, 1f, 1f, 0f, 0f, 1f, 1f, 1f, 1f);
+            add(bx1, by1, FRONT_Z, 1f, 0f, 0f, 0f, 1f, 1f, 1f, 1f);
+            // 背面（NORTH 面）：顺时针绕序，法线 -Z（UV 相同 → 从背面看左右镜像）
+            add(bx1, by1, BACK_Z, 1f, 0f, 0f, 0f, -1f, 1f, 1f, 1f);
+            add(bx1, by0, BACK_Z, 1f, 1f, 0f, 0f, -1f, 1f, 1f, 1f);
+            add(bx0, by0, BACK_Z, 0f, 1f, 0f, 0f, -1f, 1f, 1f, 1f);
+            add(bx0, by1, BACK_Z, 0f, 0f, 0f, 0f, -1f, 1f, 1f, 1f);
+
+            // 沿合成贴图 alpha 轮廓逐像素生成边缘面（"体素堆积"观感）
+            boolean[][] opaque = buildOpaque(image, w, h);
+            for (int x = 0; x < w; x++) {
+                for (int y = 0; y < h; y++) {
+                    if (!opaque[x][y]) continue;
+                    float xL = bx0 + x * pw;
+                    float xR = bx0 + (x + 1) * pw;
+                    float yT = by1 - y * ph;
+                    float yB = by1 - (y + 1) * ph;
+                    float pu = x * uw;
+                    float pv = y * vh;
+                    // 上边界（法线 +Y）
+                    if (!isOpaque(opaque, x, y - 1, w, h)) {
+                        add(xL, yT, FRONT_Z, pu, pv, 0f, 1f, 0f, 1f, 1f, 1f);
+                        add(xR, yT, FRONT_Z, pu + uw, pv, 0f, 1f, 0f, 1f, 1f, 1f);
+                        add(xR, yT, BACK_Z, pu + uw, pv + vh, 0f, 1f, 0f, 1f, 1f, 1f);
+                        add(xL, yT, BACK_Z, pu, pv + vh, 0f, 1f, 0f, 1f, 1f, 1f);
+                    }
+                    // 下边界（法线 -Y）
+                    if (!isOpaque(opaque, x, y + 1, w, h)) {
+                        add(xL, yB, BACK_Z, pu, pv + vh, 0f, -1f, 0f, 1f, 1f, 1f);
+                        add(xR, yB, BACK_Z, pu + uw, pv + vh, 0f, -1f, 0f, 1f, 1f, 1f);
+                        add(xR, yB, FRONT_Z, pu + uw, pv, 0f, -1f, 0f, 1f, 1f, 1f);
+                        add(xL, yB, FRONT_Z, pu, pv, 0f, -1f, 0f, 1f, 1f, 1f);
+                    }
+                    // 左边界（法线 -X）
+                    if (!isOpaque(opaque, x - 1, y, w, h)) {
+                        add(xL, yB, BACK_Z, pu, pv + vh, -1f, 0f, 0f, 1f, 1f, 1f);
+                        add(xL, yB, FRONT_Z, pu + uw, pv + vh, -1f, 0f, 0f, 1f, 1f, 1f);
+                        add(xL, yT, FRONT_Z, pu + uw, pv, -1f, 0f, 0f, 1f, 1f, 1f);
+                        add(xL, yT, BACK_Z, pu, pv, -1f, 0f, 0f, 1f, 1f, 1f);
+                    }
+                    // 右边界（法线 +X）
+                    if (!isOpaque(opaque, x + 1, y, w, h)) {
+                        add(xR, yB, FRONT_Z, pu + uw, pv + vh, 1f, 0f, 0f, 1f, 1f, 1f);
+                        add(xR, yB, BACK_Z, pu, pv + vh, 1f, 0f, 0f, 1f, 1f, 1f);
+                        add(xR, yT, BACK_Z, pu, pv, 1f, 0f, 0f, 1f, 1f, 1f);
+                        add(xR, yT, FRONT_Z, pu + uw, pv, 1f, 0f, 0f, 1f, 1f, 1f);
+                    }
+                }
+            }
+            dirty = false;
+        }
+
+        /** CACHE: 追加一个顶点（位置/UV/法线/颜色，模型空间） */
+        private void add(float x, float y, float z, float u, float v,
+                         float nx, float ny, float nz, float r, float g, float b) {
+            cachedVertices.add(new CachedVertex(x, y, z, u, v, nx, ny, nz, r, g, b));
+        }
     }
+
+    /** CACHE: 缓存顶点——writeVertex 的固定参数（模型空间坐标，渲染时经姿态矩阵变换） */
+    private record CachedVertex(float x, float y, float z, float u, float v,
+                                float nx, float ny, float nz, float r, float g, float b) {}
 
     public AssembledWeaponRenderer(BlockEntityRenderDispatcher dispatcher, EntityModelSet modelSet) {
         super(dispatcher, modelSet);
@@ -118,8 +230,16 @@ public class AssembledWeaponRenderer extends BlockEntityWithoutLevelRenderer {
         for (PartRender p : parts) {
             bx0 = Math.min(bx0, p.dx());
             by0 = Math.min(by0, p.dy());
-            bx1 = Math.max(bx1, p.dx() + 1f);
-            by1 = Math.max(by1, p.dy() + 1f);
+            String id = p.stack().get(CwcDataComponents.PART_IDENTITY.get());
+            // 包围盒按零件实际贴图尺寸扩展（支持非 16×16 贴图），默认 16px 兜底
+            float pw = 1f, ph = 1f;
+            if (id != null) {
+                NativeImage src = partSourceImage(id);
+                pw = src.getWidth() / 16f;
+                ph = src.getHeight() / 16f;
+            }
+            bx1 = Math.max(bx1, p.dx() + pw);
+            by1 = Math.max(by1, p.dy() + ph);
         }
         int cw = Math.round((bx1 - bx0) * 16);
         int ch = Math.round((by1 - by0) * 16);
@@ -129,13 +249,10 @@ public class AssembledWeaponRenderer extends BlockEntityWithoutLevelRenderer {
         for (PartRender p : parts) {
             String id = p.stack().get(CwcDataComponents.PART_IDENTITY.get());
             if (id == null) continue;
-            TextureAtlasSprite sprite = Minecraft.getInstance()
-                    .getTextureAtlas(InventoryMenu.BLOCK_ATLAS)
-                    .apply(textureOf(id));
-            NativeImage src = sprite.contents().getOriginalImage();
-            // 合成画布：第 0 行 = 模型顶部（y=by1）；零件贴图行 ty 在模型 y=dy+1-ty/16
+            NativeImage src = partSourceImage(id);
+            // 合成画布：第 0 行 = 模型顶部（y=by1）；零件贴图行 ty 在模型 y=dy+sh/16-ty/16
             int ox = Math.round((p.dx() - bx0) * 16);
-            int oy = Math.round((by1 - p.dy() - 1) * 16);
+            int oy = Math.round((by1 - p.dy() - src.getHeight() / 16f) * 16);
             int sw = src.getWidth(), sh = src.getHeight();
             for (int ty = 0; ty < sh; ty++) {
                 for (int tx = 0; tx < sw; tx++) {
@@ -185,64 +302,12 @@ public class AssembledWeaponRenderer extends BlockEntityWithoutLevelRenderer {
                                         int light, int overlay) {
         VertexConsumer consumer = buffer.getBuffer(comp.renderType());
         PoseStack.Pose p = pose.last();
-        NativeImage img = comp.image();
-        int w = img.getWidth();
-        int h = img.getHeight();
-        float bx0 = comp.bx0(), by0 = comp.by0(), bx1 = comp.bx1(), by1 = comp.by1();
-        // 正面（SOUTH 面）：逆时针绕序，法线 +Z，UV 顶 v0 在模型顶部（y=by1）
-        writeVertex(consumer, p, bx0, by1, FRONT_Z, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f, light, overlay);
-        writeVertex(consumer, p, bx0, by0, FRONT_Z, 0f, 1f, 0f, 0f, 1f, 1f, 1f, 1f, light, overlay);
-        writeVertex(consumer, p, bx1, by0, FRONT_Z, 1f, 1f, 0f, 0f, 1f, 1f, 1f, 1f, light, overlay);
-        writeVertex(consumer, p, bx1, by1, FRONT_Z, 1f, 0f, 0f, 0f, 1f, 1f, 1f, 1f, light, overlay);
-        // 背面（NORTH 面）：顺时针绕序，法线 -Z（UV 相同 → 从背面看左右镜像）
-        writeVertex(consumer, p, bx1, by1, BACK_Z, 1f, 0f, 0f, 0f, -1f, 1f, 1f, 1f, light, overlay);
-        writeVertex(consumer, p, bx1, by0, BACK_Z, 1f, 1f, 0f, 0f, -1f, 1f, 1f, 1f, light, overlay);
-        writeVertex(consumer, p, bx0, by0, BACK_Z, 0f, 1f, 0f, 0f, -1f, 1f, 1f, 1f, light, overlay);
-        writeVertex(consumer, p, bx0, by1, BACK_Z, 0f, 0f, 0f, 0f, -1f, 1f, 1f, 1f, light, overlay);
-        // 沿合成贴图 alpha 轮廓逐像素生成边缘面（"体素堆积"观感）
-        boolean[][] opaque = buildOpaque(img, w, h);
-        float pw = (bx1 - bx0) / w;   // 单像素模型宽
-        float ph = (by1 - by0) / h;   // 单像素模型高
-        float uw = 1f / w;            // 单像素 UV 宽
-        float vh = 1f / h;            // 单像素 UV 高
-        for (int x = 0; x < w; x++) {
-            for (int y = 0; y < h; y++) {
-                if (!opaque[x][y]) continue;
-                float xL = bx0 + x * pw;
-                float xR = bx0 + (x + 1) * pw;
-                float yT = by1 - y * ph;
-                float yB = by1 - (y + 1) * ph;
-                float pu = x * uw;
-                float pv = y * vh;
-                // 上边界（法线 +Y）
-                if (!isOpaque(opaque, x, y - 1, w, h)) {
-                    writeVertex(consumer, p, xL, yT, FRONT_Z, pu, pv, 0f, 1f, 0f, 1f, 1f, 1f, light, overlay);
-                    writeVertex(consumer, p, xR, yT, FRONT_Z, pu + uw, pv, 0f, 1f, 0f, 1f, 1f, 1f, light, overlay);
-                    writeVertex(consumer, p, xR, yT, BACK_Z, pu + uw, pv + vh, 0f, 1f, 0f, 1f, 1f, 1f, light, overlay);
-                    writeVertex(consumer, p, xL, yT, BACK_Z, pu, pv + vh, 0f, 1f, 0f, 1f, 1f, 1f, light, overlay);
-                }
-                // 下边界（法线 -Y）
-                if (!isOpaque(opaque, x, y + 1, w, h)) {
-                    writeVertex(consumer, p, xL, yB, BACK_Z, pu, pv + vh, 0f, -1f, 0f, 1f, 1f, 1f, light, overlay);
-                    writeVertex(consumer, p, xR, yB, BACK_Z, pu + uw, pv + vh, 0f, -1f, 0f, 1f, 1f, 1f, light, overlay);
-                    writeVertex(consumer, p, xR, yB, FRONT_Z, pu + uw, pv, 0f, -1f, 0f, 1f, 1f, 1f, light, overlay);
-                    writeVertex(consumer, p, xL, yB, FRONT_Z, pu, pv, 0f, -1f, 0f, 1f, 1f, 1f, light, overlay);
-                }
-                // 左边界（法线 -X）
-                if (!isOpaque(opaque, x - 1, y, w, h)) {
-                    writeVertex(consumer, p, xL, yB, BACK_Z, pu, pv + vh, -1f, 0f, 0f, 1f, 1f, 1f, light, overlay);
-                    writeVertex(consumer, p, xL, yB, FRONT_Z, pu + uw, pv + vh, -1f, 0f, 0f, 1f, 1f, 1f, light, overlay);
-                    writeVertex(consumer, p, xL, yT, FRONT_Z, pu + uw, pv, -1f, 0f, 0f, 1f, 1f, 1f, light, overlay);
-                    writeVertex(consumer, p, xL, yT, BACK_Z, pu, pv, -1f, 0f, 0f, 1f, 1f, 1f, light, overlay);
-                }
-                // 右边界（法线 +X）
-                if (!isOpaque(opaque, x + 1, y, w, h)) {
-                    writeVertex(consumer, p, xR, yB, FRONT_Z, pu + uw, pv + vh, 1f, 0f, 0f, 1f, 1f, 1f, light, overlay);
-                    writeVertex(consumer, p, xR, yB, BACK_Z, pu, pv + vh, 1f, 0f, 0f, 1f, 1f, 1f, light, overlay);
-                    writeVertex(consumer, p, xR, yT, BACK_Z, pu, pv, 1f, 0f, 0f, 1f, 1f, 1f, light, overlay);
-                    writeVertex(consumer, p, xR, yT, FRONT_Z, pu + uw, pv, 1f, 0f, 0f, 1f, 1f, 1f, light, overlay);
-                }
-            }
+        // CACHE: 网格缓存未构建/已标记脏时重建一次，其余渲染直接复用
+        if (comp.dirty()) comp.buildMesh();
+        // CACHE: 直接遍历缓存顶点（原逐像素循环和 buildOpaque 已移入 buildMesh）
+        for (CachedVertex v : comp.cachedVertices()) {
+            writeVertex(consumer, p, v.x(), v.y(), v.z(), v.u(), v.v(),
+                    v.nx(), v.ny(), v.nz(), v.r(), v.g(), v.b(), light, overlay);
         }
     }
 
@@ -268,11 +333,21 @@ public class AssembledWeaponRenderer extends BlockEntityWithoutLevelRenderer {
             if (partType == null) continue;
             float dx = (slotDef.positionX() - partType.positionX()) / 16.0f;
             // 贴图 y 向下、模型 y 向上，dy 符号与 dx 相反
-            float dy = (partType.positionY() - slotDef.positionY()) / 16.0f;
+            // 高度补偿：子件贴图比父件高时整体下移，使安装点与槽位对齐（等高校时补偿为 0）
+            float dy = (partType.positionY() - slotDef.positionY()) / 16.0f
+                    + (partSourceImage(id).getHeight() - partSourceImage(partId).getHeight()) / 16f;
             out.add(new PartRender(partStack, bx + dx, by + dy, partType.layerValue(), order[0]++));
             // 嵌套子零件（如刃上的护手）
             collectChildren(partStack, bx + dx, by + dy, out, order);
         }
+    }
+
+    /** 取零件 id 对应的合成源贴图（atlas 中的原始图片，非裁剪区域） */
+    private static NativeImage partSourceImage(String id) {
+        return Minecraft.getInstance()
+                .getTextureAtlas(InventoryMenu.BLOCK_ATLAS)
+                .apply(textureOf(id))
+                .contents().getOriginalImage();
     }
 
     /** 构建贴图不透明掩码（alpha > 0；NativeImage ABGR 格式，alpha 在最高字节） */
