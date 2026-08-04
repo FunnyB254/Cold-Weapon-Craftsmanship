@@ -1,0 +1,12 @@
+{
+  "parser": "cwc:handle",
+  "recipes": [
+    {
+      "ingredients": [
+        null,
+        { "item": "minecraft:cobblestone", "count": 2 },
+        null
+      ]
+    }
+  ]
+}

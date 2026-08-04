@@ -26,6 +26,10 @@ public final class WeaponStats {
             ResourceLocation.fromNamespaceAndPath("coldweaponcraftsmanship", "assembled_damage");
     private static final ResourceLocation SPD_ID =
             ResourceLocation.fromNamespaceAndPath("coldweaponcraftsmanship", "assembled_speed");
+    private static final ResourceLocation KB_ID =
+            ResourceLocation.fromNamespaceAndPath("coldweaponcraftsmanship", "assembled_knockback");
+    private static final ResourceLocation REACH_ID =
+            ResourceLocation.fromNamespaceAndPath("coldweaponcraftsmanship", "assembled_reach");
 
     private WeaponStats() {}
 
@@ -46,6 +50,7 @@ public final class WeaponStats {
         if (assembled == null || assembled.isEmpty()) {
             base.remove(DataComponents.ATTRIBUTE_MODIFIERS);
             base.remove(DataComponents.MAX_DAMAGE);
+            base.remove(CwcDataComponents.BLOCK_VALUE.get());
             return;
         }
 
@@ -63,15 +68,58 @@ public final class WeaponStats {
             durability += attr(def, "durability") * slotDef.weight("durability");
         }
 
-        ItemAttributeModifiers modifiers = ItemAttributeModifiers.builder()
+        // 找刃型（type == "attack" 的已装零件）的战斗特征，写入攻击范围/击退加成
+        double reach = 0;
+        double knockback = 0;
+        for (Map.Entry<String, ItemStack> entry : assembled.entrySet()) {
+            String partId = entry.getValue().get(CwcDataComponents.PART_IDENTITY.get());
+            if (partId == null) continue;
+            PartDef def = PartRegistry.getPartDef(partId);
+            if (def == null) continue;
+            PartTypeDef ptype = PartRegistry.getTypeDef(def.typeId());
+            if (ptype == null) continue;
+            if ("attack".equals(ptype.data().get("type"))) {
+                reach = ptype.combatReach();
+                knockback = ptype.combatKnockback();
+                break;
+            }
+        }
+
+        var builder = ItemAttributeModifiers.builder()
                 .add(Attributes.ATTACK_DAMAGE,
                         new AttributeModifier(DMG_ID, damage, AttributeModifier.Operation.ADD_VALUE),
                         EquipmentSlotGroup.MAINHAND)
                 .add(Attributes.ATTACK_SPEED,
                         new AttributeModifier(SPD_ID, BASE_ATTACK_SPEED + speed, AttributeModifier.Operation.ADD_VALUE),
-                        EquipmentSlotGroup.MAINHAND)
-                .build();
+                        EquipmentSlotGroup.MAINHAND);
+        // 加成非 0 才写入，避免无刃/平衡刃武器带多余 modifier
+        if (knockback != 0) {
+            builder.add(Attributes.ATTACK_KNOCKBACK,
+                    new AttributeModifier(KB_ID, knockback, AttributeModifier.Operation.ADD_VALUE),
+                    EquipmentSlotGroup.MAINHAND);
+        }
+        if (reach != 0) {
+            builder.add(Attributes.ENTITY_INTERACTION_RANGE,
+                    new AttributeModifier(REACH_ID, reach, AttributeModifier.Operation.ADD_VALUE),
+                    EquipmentSlotGroup.MAINHAND);
+        }
+        ItemAttributeModifiers modifiers = builder.build();
         base.set(DataComponents.ATTRIBUTE_MODIFIERS, modifiers);
+
+        // 聚合镡（guard）的格挡减伤加成，写入 BLOCK_VALUE（双手武器格挡时使用）
+        float block = 0;
+        for (Map.Entry<String, ItemStack> entry : assembled.entrySet()) {
+            String partId = entry.getValue().get(CwcDataComponents.PART_IDENTITY.get());
+            if (partId == null) continue;
+            PartDef def = PartRegistry.getPartDef(partId);
+            if (def == null) continue;
+            PartTypeDef ptype = PartRegistry.getTypeDef(def.typeId());
+            if (ptype == null) continue;
+            if ("guard".equals(ptype.data().get("type"))) {
+                block += (float) attr(def, "block");
+            }
+        }
+        base.set(CwcDataComponents.BLOCK_VALUE.get(), block);
 
         if (durability > 0) {
             base.set(DataComponents.MAX_DAMAGE, (int) Math.max(1, Math.round(durability)));

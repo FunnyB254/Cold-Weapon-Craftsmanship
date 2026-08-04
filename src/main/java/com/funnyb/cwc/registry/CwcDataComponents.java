@@ -40,6 +40,14 @@ public class CwcDataComponents {
                                     HashMap::new, ByteBufCodecs.STRING_UTF8, ItemStack.OPTIONAL_STREAM_CODEC, 16))
                             .build());
 
+    /** 双手武器格挡减伤加成（0~1，镡等零件提供的额外减伤），写在装配武器上 */
+    public static final DeferredHolder<DataComponentType<?>, DataComponentType<Float>> BLOCK_VALUE =
+            COMPONENTS.register("block_value",
+                    () -> DataComponentType.<Float>builder()
+                            .persistent(Codec.FLOAT)
+                            .networkSynchronized(ByteBufCodecs.FLOAT)
+                            .build());
+
     public static void init(IEventBus modEventBus) {
         COMPONENTS.register(modEventBus);
     }

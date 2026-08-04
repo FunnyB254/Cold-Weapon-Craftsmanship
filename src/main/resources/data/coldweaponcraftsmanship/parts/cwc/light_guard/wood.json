@@ -1,0 +1,15 @@
+{
+  "parser": "cwc:default",
+  "data": {
+    "weight": "light"
+  },
+  "recipes": [
+    {
+      "ingredients": [
+        null,
+        { "item": "minecraft:stick", "count": 1 },
+        null
+      ]
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "parser": "cwc:default",
+  "data": {},
+  "layer": 1000,
+  "twoHanded": true,
+  "slots": [
+    {
+      "name": "slot.cwc.blade",
+      "constraint": {
+        "type": ["attack"],
+        "mount": ["tang"],
+        "weight": ["light", "middle", "heavy"]
+      },
+      "position": { "x": 10, "y": 5 }
+    },
+    {
+      "name": "slot.cwc.pommel",
+      "constraint": {
+        "type": ["pommel"],
+        "weight": ["light", "middle", "heavy"]
+      },
+      "position": { "x": 2, "y": 13 }
+    }
+  ]
+}

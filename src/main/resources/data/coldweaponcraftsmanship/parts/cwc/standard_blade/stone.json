@@ -1,0 +1,17 @@
+{
+  "parser": "cwc:metal",
+  "data": {
+    "damage": { "base": 2.0, "hardnessMultiplier": 0.5, "toughnessMultiplier": 0 },
+    "speed": { "base": 0.2, "hardnessMultiplier": 0, "toughnessMultiplier": 0 },
+    "durability": { "base": 40, "hardnessMultiplier": 5, "toughnessMultiplier": 2 }
+  },
+  "recipes": [
+    {
+      "ingredients": [
+        null,
+        { "item": "minecraft:cobblestone", "count": 2 },
+        null
+      ]
+    }
+  ]
+}

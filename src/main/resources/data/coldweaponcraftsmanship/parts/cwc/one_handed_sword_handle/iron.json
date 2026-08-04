@@ -1,0 +1,12 @@
+{
+  "parser": "cwc:handle",
+  "recipes": [
+    {
+      "ingredients": [
+        null,
+        { "item": "minecraft:iron_ingot", "count": 2 },
+        null
+      ]
+    }
+  ]
+}

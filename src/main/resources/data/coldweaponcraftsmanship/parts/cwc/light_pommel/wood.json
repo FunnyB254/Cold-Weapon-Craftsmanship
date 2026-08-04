@@ -1,0 +1,17 @@
+{
+  "parser": "cwc:default",
+  "data": {
+    "damage": 0,
+    "speed": 0.1,
+    "durability": 8
+  },
+  "recipes": [
+    {
+      "ingredients": [
+        null,
+        { "item": "minecraft:stick", "count": 1 },
+        null
+      ]
+    }
+  ]
+}

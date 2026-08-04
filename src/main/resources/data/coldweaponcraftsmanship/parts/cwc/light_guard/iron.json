@@ -1,7 +1,8 @@
 {
   "parser": "cwc:default",
   "data": {
-    "weight": "light"
+    "weight": "light",
+    "block": 0.1
   },
   "recipes": [
     {

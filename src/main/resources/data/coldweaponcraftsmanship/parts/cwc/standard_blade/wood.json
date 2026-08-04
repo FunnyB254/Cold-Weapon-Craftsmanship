@@ -1,9 +1,9 @@
 {
-  "parser": "cwc:default",
+  "parser": "cwc:metal",
   "data": {
-    "damage": 2.0,
-    "speed": 0.4,
-    "durability": 30
+    "damage": { "base": 2.0, "hardnessMultiplier": 0.5, "toughnessMultiplier": 0 },
+    "speed": { "base": 0.4, "hardnessMultiplier": 0, "toughnessMultiplier": 0 },
+    "durability": { "base": 30, "hardnessMultiplier": 5, "toughnessMultiplier": 2 }
   },
   "recipes": [
     {

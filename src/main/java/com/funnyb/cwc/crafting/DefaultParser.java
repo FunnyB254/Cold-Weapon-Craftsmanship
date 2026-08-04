@@ -42,7 +42,9 @@ public class DefaultParser extends BaseParser {
                 return new PartTypeDef(id, jt.data != null ? jt.data : Map.of(),
                         normalizeSlots(jt.slots),
                         jt.position != null ? jt.position : null,
-                        jt.layer);
+                        jt.layer,
+                        jt.combat,
+                        jt.twoHanded);
             }
         } catch (Exception e) {
             ColdWeaponCraftsmanship.LOGGER.error("Failed to parse type {}", location, e);
@@ -80,6 +82,8 @@ public class DefaultParser extends BaseParser {
         List<PartTypeDef.SlotDef> slots;
         PartTypeDef.Position position;
         Double layer;
+        PartTypeDef.CombatStyle combat;
+        boolean twoHanded;
     }
     private static class JsonPart {
         String parser;
