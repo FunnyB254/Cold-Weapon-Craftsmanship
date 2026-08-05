@@ -12,10 +12,13 @@ import java.util.Map;
  * @param position 该类型贴图上的安装点（子件安装点）。null 表示默认 (0,0)
  * @param layer     渲染优先级（整数/实数），越大越靠上；null 默认 0
  * @param combat    攻击特征（刃型声明攻击范围/击退加成）。null 表示默认无加成
- * @param twoHanded 是否双手武器（handle 底座占用主手右键格挡，屏蔽副手交互）。默认 false
+ * @param twoHanded    是否双手武器（handle 底座占用主手右键格挡，屏蔽副手交互）。默认 false
+ * @param offset       整体贴图偏移（像素，渲染时武器整体平移，改变握持位置）。null 表示无偏移
+ * @param offhandAttack 刃型是否可副手右键攻击（放在副手时右键出刀）。默认 false
  */
 public record PartTypeDef(String id, Map<String, String> data, List<SlotDef> slots,
-                          Position position, Double layer, CombatStyle combat, boolean twoHanded) {
+                          Position position, Double layer, CombatStyle combat, boolean twoHanded,
+                          Position offset, boolean offhandAttack) {
 
     public String role() {
         return data.isEmpty() ? "handle_part" : "part";
@@ -32,6 +35,11 @@ public record PartTypeDef(String id, Map<String, String> data, List<SlotDef> slo
     public double combatReach() { return combat != null ? combat.reach() : 0.0; }
     /** 击退加成，未声明 combat 按 0 */
     public double combatKnockback() { return combat != null ? combat.knockback() : 0.0; }
+
+    /** 整体贴图偏移 x（像素，1/16 格），未声明按 0 */
+    public int offsetX() { return offset != null ? offset.x() : 0; }
+    /** 整体贴图偏移 y（像素，1/16 格），未声明按 0 */
+    public int offsetY() { return offset != null ? offset.y() : 0; }
 
     /**
      * 单个装配槽位。

@@ -1,0 +1,17 @@
+{
+  "parser": "cwc:metal",
+  "data": {
+    "damage": { "base": 1.0, "hardnessMultiplier": 0.5, "toughnessMultiplier": 0 },
+    "speed": { "base": 1.0, "hardnessMultiplier": 0, "toughnessMultiplier": 0 },
+    "durability": { "base": 25, "hardnessMultiplier": 5, "toughnessMultiplier": 2 }
+  },
+  "recipes": [
+    {
+      "ingredients": [
+        null,
+        { "item": "minecraft:iron_ingot", "count": 1 },
+        null
+      ]
+    }
+  ]
+}

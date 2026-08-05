@@ -14,6 +14,7 @@
   "tooltip.cwc.back": "返回",
 
   "type.cwc.standard_blade": "标准刃",
+  "type.cwc.short_blade": "短刀刃",
   "type.cwc.half_sword": "手半剑刃",
   "type.cwc.one_handed_sword_handle": "单手剑柄",
   "type.cwc.light_guard": "轻护手",
@@ -66,6 +67,7 @@
   "part.cwc.light_pommel.netherite": "下界合金轻配重",
   "part.cwc.two_handed_sword_handle.wood": "木双手剑柄",
   "part.cwc.long_blade.iron": "铁长刃",
+  "part.cwc.short_blade.iron": "铁短刀刃",
 
   "slot.cwc.blade": "刃槽",
   "slot.cwc.guard": "镡槽",

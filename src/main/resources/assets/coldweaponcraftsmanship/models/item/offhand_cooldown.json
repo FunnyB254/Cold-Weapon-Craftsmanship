@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "coldweaponcraftsmanship:item/creative_part_star"
+  }
+}

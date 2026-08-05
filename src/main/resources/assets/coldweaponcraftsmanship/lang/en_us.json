@@ -14,6 +14,7 @@
   "tooltip.cwc.back": "Back",
 
   "type.cwc.standard_blade": "Standard Blade",
+  "type.cwc.short_blade": "Short Blade",
   "type.cwc.half_sword": "Hand-and-a-Half Blade",
   "type.cwc.one_handed_sword_handle": "One-Handed Sword Handle",
   "type.cwc.light_guard": "Light Guard",
@@ -66,6 +67,7 @@
   "part.cwc.light_pommel.netherite": "Netherite Light Pommel",
   "part.cwc.two_handed_sword_handle.wood": "Wooden Two-Handed Sword Handle",
   "part.cwc.long_blade.iron": "Iron Long Blade",
+  "part.cwc.short_blade.iron": "Iron Short Blade",
 
   "slot.cwc.blade": "Blade Slot",
   "slot.cwc.guard": "Guard Slot",

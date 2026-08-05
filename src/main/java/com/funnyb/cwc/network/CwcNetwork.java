@@ -3,12 +3,15 @@ package com.funnyb.cwc.network;
 import com.funnyb.cwc.ColdWeaponCraftsmanship;
 import com.funnyb.cwc.menu.AssemblingMenu;
 import com.funnyb.cwc.menu.CraftingMenu;
+import com.funnyb.cwc.network.serverbound.CwcOffhandAttackPacket;
 import com.funnyb.cwc.network.serverbound.CycleRecipePacket;
 import com.funnyb.cwc.network.serverbound.OpenAssemblingPacket;
 import com.funnyb.cwc.network.serverbound.OpenCraftingPacket;
 import com.funnyb.cwc.network.serverbound.RenamePartPacket;
 import com.funnyb.cwc.network.serverbound.SelectPartPacket;
 import com.funnyb.cwc.network.serverbound.SetScrollPacket;
+
+import com.funnyb.cwc.combat.CwcCombat;
 
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.SimpleMenuProvider;
@@ -98,6 +101,16 @@ public class CwcNetwork {
                         if (player.containerMenu instanceof AssemblingMenu menu) {
                             menu.setScrollRows(payload.scrollRows());
                         }
+                    }
+                });
+
+        // 客户端→服务端：副手短刀右键攻击（目标由客户端 hitResult 点选，服务端权威执行）
+        registrar.playToServer(
+                CwcOffhandAttackPacket.TYPE,
+                CwcOffhandAttackPacket.STREAM_CODEC,
+                (payload, ctx) -> {
+                    if (ctx.player() instanceof ServerPlayer player) {
+                        CwcCombat.performOffhandAttack(player, payload.targetId());
                     }
                 });
 

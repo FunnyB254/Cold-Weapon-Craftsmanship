@@ -44,7 +44,9 @@ public class DefaultParser extends BaseParser {
                         jt.position != null ? jt.position : null,
                         jt.layer,
                         jt.combat,
-                        jt.twoHanded);
+                        jt.twoHanded,
+                        jt.offset,
+                        jt.offhandAttack);
             }
         } catch (Exception e) {
             ColdWeaponCraftsmanship.LOGGER.error("Failed to parse type {}", location, e);
@@ -84,6 +86,8 @@ public class DefaultParser extends BaseParser {
         Double layer;
         PartTypeDef.CombatStyle combat;
         boolean twoHanded;
+        PartTypeDef.Position offset;
+        boolean offhandAttack;
     }
     private static class JsonPart {
         String parser;

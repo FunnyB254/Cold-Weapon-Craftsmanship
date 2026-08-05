@@ -3,13 +3,14 @@
   "data": {},
   "layer": 1000,
   "twoHanded": true,
+  "offset": { "x": -5, "y": -5 },
   "slots": [
     {
       "name": "slot.cwc.blade",
       "constraint": {
         "type": ["attack"],
         "mount": ["tang"],
-        "weight": ["light", "middle", "heavy"]
+        "weight": ["middle", "heavy"]
       },
       "position": { "x": 10, "y": 5 }
     },

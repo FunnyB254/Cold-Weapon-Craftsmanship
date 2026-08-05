@@ -201,6 +201,10 @@ public class AssembledWeaponRenderer extends BlockEntityWithoutLevelRenderer {
         if (comp == null) return;
 
         pose.pushPose();
+        // 手柄整体贴图偏移——改变握持位置（作用于所有视角），渲染前整体平移武器
+        if (typeDef != null && (typeDef.offsetX() != 0 || typeDef.offsetY() != 0)) {
+            pose.translate(typeDef.offsetX() / 16f, typeDef.offsetY() / 16f, 0f);
+        }
         // 只画一张合成贴图：正面/背面/边缘面，深度写、非排序
         renderComposite(comp, pose, buffer, light, overlay);
         pose.popPose();

@@ -25,10 +25,10 @@ public class CwcCombatEvents {
     public void onAttack(AttackEntityEvent event) {
         Player player = event.getEntity();
         if (player.level().isClientSide) return;              // 服务端权威
-        ItemStack stack = player.getMainHandItem();
-        if (stack.getItem() != CwcItems.HANDLE_PART.get()) return;  // 只限制本模组武器
-        if (player.getAttackStrengthScale(0f) >= 1.0f) return;      // 冷却满，放行
-        event.setCanceled(true);                              // 冷却未满，静默阻止
+        // 统一攻击管线：冷却未满则拦截，放行则让 vanilla Player.attack 继续结算伤害
+        if (!CwcCombat.interceptMainHandAttack(player, event.getTarget())) {
+            event.setCanceled(true);
+        }
     }
 
     /**

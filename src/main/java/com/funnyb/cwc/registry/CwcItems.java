@@ -31,6 +31,10 @@ public class CwcItems {
     public static final DeferredItem<Item> HANDLE_PART = ITEMS.register("handle_part",
             () -> new CwcWeapon(Tiers.IRON, new Item.Properties().stacksTo(1)));
 
+    /** 副手短刀出刀冷却的专用键——独立物品冷却，与 HANDLE_PART 完全隔离，不影响主手武器的冷却/格挡 */
+    public static final DeferredItem<Item> OFFHAND_COOLDOWN = ITEMS.register("offhand_cooldown",
+            () -> new Item(new Item.Properties()));
+
     /** 将物品注册器绑定到模组事件总线 */
     public static void init(IEventBus modEventBus) {
         ITEMS.register(modEventBus);

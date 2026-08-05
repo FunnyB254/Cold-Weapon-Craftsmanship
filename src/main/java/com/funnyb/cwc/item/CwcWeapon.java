@@ -4,6 +4,7 @@ import com.funnyb.cwc.crafting.PartDef;
 import com.funnyb.cwc.crafting.PartRegistry;
 import com.funnyb.cwc.crafting.PartTypeDef;
 import com.funnyb.cwc.registry.CwcDataComponents;
+import com.funnyb.cwc.registry.CwcItems;
 
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResultHolder;
@@ -15,9 +16,12 @@ import net.minecraft.world.item.TieredItem;
 import net.minecraft.world.item.UseAnim;
 import net.minecraft.world.level.Level;
 
+import java.util.Map;
+
 /**
  * CWC 组装武器——继承 TieredItem。
- * 双手武器：右键进入格挡（使用状态），屏蔽副手交互；单手武器保持原版行为（右键留给副手）。
+ * 只保留武器本体行为：双手武器右键格挡、武器身份判断（双手/短刀）。
+ * 攻击行为（主手强制冷却、副手短刀出刀）统一走 {@link com.funnyb.cwc.combat.CwcCombat} 管线。
  */
 public class CwcWeapon extends TieredItem {
 
@@ -25,7 +29,10 @@ public class CwcWeapon extends TieredItem {
         super(tier, properties);
     }
 
-    /** 双手武器：右键开始使用（格挡）；单手武器 pass（不占右键，副手交互保留） */
+    /**
+     * 右手：双手武器右键进入格挡；单手武器 pass（右键留给副手/其他物品）。
+     * 副手短刀的右键攻击由客户端拦截改发 CwcOffhandAttackPacket，不进这里。
+     */
     @Override
     public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
         ItemStack stack = player.getItemInHand(hand);
@@ -56,5 +63,22 @@ public class CwcWeapon extends TieredItem {
         if (def == null) return false;
         PartTypeDef typeDef = PartRegistry.getTypeDef(def.typeId());
         return typeDef != null && typeDef.twoHanded();
+    }
+
+    /** 是否短刀武器：底座为手柄，且已装配的刃型声明 offhandAttack（副手右键出刀） */
+    public static boolean isOffhandKnife(ItemStack stack) {
+        if (stack.getItem() != CwcItems.HANDLE_PART.get()) return false;
+        String identity = stack.get(CwcDataComponents.PART_IDENTITY.get());
+        if (identity == null) return false;
+        Map<String, ItemStack> slots = stack.get(CwcDataComponents.ASSEMBLED_SLOTS.get());
+        if (slots == null || slots.isEmpty()) return false;
+        for (ItemStack child : slots.values()) {
+            String childId = child.get(CwcDataComponents.PART_IDENTITY.get());
+            if (childId == null) continue;
+            PartDef childDef = PartRegistry.getPartDef(childId);
+            PartTypeDef type = childDef != null ? PartRegistry.getTypeDef(childDef.typeId()) : null;
+            if (type != null && type.offhandAttack()) return true;
+        }
+        return false;
     }
 }
