@@ -11,7 +11,7 @@ import java.util.Map;
  * @param slots    槽位列表。空数组表示不能接收其他零件
  * @param position 该类型贴图上的安装点（子件安装点）。null 表示默认 (0,0)
  * @param layer     渲染优先级（整数/实数），越大越靠上；null 默认 0
- * @param combat    攻击特征（刃型声明攻击范围/击退加成）。null 表示默认无加成
+ * @param combat    攻击特征（刃型声明攻击范围/击退加成/普攻方式）。null 表示默认无加成
  * @param twoHanded    是否双手武器（handle 底座占用主手右键格挡，屏蔽副手交互）。默认 false
  * @param offset       整体贴图偏移（像素，渲染时武器整体平移，改变握持位置）。null 表示无偏移
  * @param offhandAttack 刃型是否可副手右键攻击（放在副手时右键出刀）。默认 false
@@ -35,6 +35,10 @@ public record PartTypeDef(String id, Map<String, String> data, List<SlotDef> slo
     public double combatReach() { return combat != null ? combat.reach() : 0.0; }
     /** 击退加成，未声明 combat 按 0 */
     public double combatKnockback() { return combat != null ? combat.knockback() : 0.0; }
+    /** 普攻方式（刃型指定），未声明/未知按 NORMAL */
+    public AttackStyle attackStyle() {
+        return combat != null ? AttackStyle.from(combat.style()) : AttackStyle.NORMAL;
+    }
 
     /** 整体贴图偏移 x（像素，1/16 格），未声明按 0 */
     public int offsetX() { return offset != null ? offset.x() : 0; }
@@ -72,6 +76,29 @@ public record PartTypeDef(String id, Map<String, String> data, List<SlotDef> slo
      *
      * @param reach     攻击范围加成（写入 ENTITY_INTERACTION_RANGE，默认 3.0，+0.5 打得更远）
      * @param knockback 击退加成（写入 ATTACK_KNOCKBACK，默认 0）
+     * @param style     普攻方式（"normal"/"sweep"/"critical"，由 {@link AttackStyle} 归一化）。null/未知按 normal
      */
-    public record CombatStyle(double reach, double knockback) {}
+    public record CombatStyle(double reach, double knockback, String style) {}
+
+    /**
+     * 刃型普攻方式——普攻时按声明执行差异化效果：
+     * <ul>
+     *   <li>{@link #NORMAL} 普攻：单目标全额，稳定直击，无跳劈暴击</li>
+     *   <li>{@link #SWEEP} 横扫：范围内全额伤害，挥出即范围攻击（空挥也算），不依赖主目标命中</li>
+     *   <li>{@link #CRITICAL} 暴击：单目标，保留原版跳劈暴击（空中下落 ×1.5 + 红粒子 + 音效）</li>
+     * </ul>
+     */
+    public enum AttackStyle {
+        NORMAL, SWEEP, CRITICAL;
+
+        /** 字符串 → 枚举，未知值按 NORMAL（forward-compat，JSON 新增类型不炸） */
+        public static AttackStyle from(String style) {
+            if (style == null) return NORMAL;
+            return switch (style) {
+                case "sweep" -> SWEEP;
+                case "critical" -> CRITICAL;
+                default -> NORMAL;
+            };
+        }
+    }
 }

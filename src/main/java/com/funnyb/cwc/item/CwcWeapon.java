@@ -81,4 +81,23 @@ public class CwcWeapon extends TieredItem {
         }
         return false;
     }
+
+    /** 普攻方式（刃型指定）——遍历已装零件找到 attack 刃型，取其 combat.style。未装配/查不到按 NORMAL */
+    public static PartTypeDef.AttackStyle attackStyle(ItemStack stack) {
+        if (stack.getItem() != CwcItems.HANDLE_PART.get()) return PartTypeDef.AttackStyle.NORMAL;
+        String identity = stack.get(CwcDataComponents.PART_IDENTITY.get());
+        if (identity == null) return PartTypeDef.AttackStyle.NORMAL;
+        Map<String, ItemStack> slots = stack.get(CwcDataComponents.ASSEMBLED_SLOTS.get());
+        if (slots == null || slots.isEmpty()) return PartTypeDef.AttackStyle.NORMAL;
+        for (ItemStack child : slots.values()) {
+            String childId = child.get(CwcDataComponents.PART_IDENTITY.get());
+            if (childId == null) continue;
+            PartDef childDef = PartRegistry.getPartDef(childId);
+            PartTypeDef type = childDef != null ? PartRegistry.getTypeDef(childDef.typeId()) : null;
+            if (type != null && "attack".equals(type.data().get("type"))) {
+                return type.attackStyle();
+            }
+        }
+        return PartTypeDef.AttackStyle.NORMAL;
+    }
 }

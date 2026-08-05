@@ -4,6 +4,7 @@ import com.funnyb.cwc.item.CwcWeapon;
 import com.funnyb.cwc.registry.CwcDataComponents;
 import com.funnyb.cwc.registry.CwcItems;
 
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -25,9 +26,13 @@ public class CwcCombatEvents {
     public void onAttack(AttackEntityEvent event) {
         Player player = event.getEntity();
         if (player.level().isClientSide) return;              // 服务端权威
-        // 统一攻击管线：冷却未满则拦截，放行则让 vanilla Player.attack 继续结算伤害
-        if (!CwcCombat.interceptMainHandAttack(player, event.getTarget())) {
-            event.setCanceled(true);
+        ItemStack weapon = player.getMainHandItem();
+        if (weapon.getItem() != CwcItems.HANDLE_PART.get()) return;  // 非 CWC 武器放行 vanilla
+        // CWC 主手攻击一律取消 vanilla，转自研管线权威执行（第三方客户端/脚本攻击入口兜底；
+        // 正常客户端已在输入层拦截改发 CwcMainHandAttackPacket，不会走到这里）
+        event.setCanceled(true);
+        if (player instanceof ServerPlayer sp) {
+            CwcCombat.performMainHandAttack(sp, event.getTarget().getId());
         }
     }
 

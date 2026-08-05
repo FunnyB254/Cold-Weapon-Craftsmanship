@@ -3,6 +3,7 @@ package com.funnyb.cwc.network;
 import com.funnyb.cwc.ColdWeaponCraftsmanship;
 import com.funnyb.cwc.menu.AssemblingMenu;
 import com.funnyb.cwc.menu.CraftingMenu;
+import com.funnyb.cwc.network.serverbound.CwcMainHandAttackPacket;
 import com.funnyb.cwc.network.serverbound.CwcOffhandAttackPacket;
 import com.funnyb.cwc.network.serverbound.CycleRecipePacket;
 import com.funnyb.cwc.network.serverbound.OpenAssemblingPacket;
@@ -101,6 +102,16 @@ public class CwcNetwork {
                         if (player.containerMenu instanceof AssemblingMenu menu) {
                             menu.setScrollRows(payload.scrollRows());
                         }
+                    }
+                });
+
+        // 客户端→服务端：主手 CWC 武器普攻（按刃型普攻方式，服务端权威执行）
+        registrar.playToServer(
+                CwcMainHandAttackPacket.TYPE,
+                CwcMainHandAttackPacket.STREAM_CODEC,
+                (payload, ctx) -> {
+                    if (ctx.player() instanceof ServerPlayer player) {
+                        CwcCombat.performMainHandAttack(player, payload.targetId());
                     }
                 });
 

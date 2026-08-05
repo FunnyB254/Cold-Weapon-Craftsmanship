@@ -127,6 +127,9 @@ configurations {
 }
 
 dependencies {
+    // dev 调试依赖：Jade 实体/方块信息显示，仅 runClient 时加载，不发布进 mod 产物
+    localRuntime files("libs/Jade-1.21.1-NeoForge-15.10.5.jar")
+
     // Example optional mod dependency with JEI
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime
     // compileOnly "mezz.jei:jei-${mc_version}-common-api:${jei_version}"

@@ -7,7 +7,7 @@
   },
   "position": { "x": 6, "y": 25 },
   "layer": 900,
-  "combat": { "reach": 1.0, "knockback": 0.0 },
+  "combat": { "reach": 1.0, "knockback": 0.0, "style": "sweep" },
   "slots": [
     {
       "name": "slot.cwc.guard",
