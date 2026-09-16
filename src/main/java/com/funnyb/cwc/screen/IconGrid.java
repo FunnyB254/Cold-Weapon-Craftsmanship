@@ -1,7 +1,7 @@
 package com.funnyb.cwc.screen;
 
 import com.funnyb.cwc.ColdWeaponCraftsmanship;
-import com.funnyb.cwc.client.Layouts;
+import com.funnyb.cwc.layout.Layouts;
 
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.resources.ResourceLocation;
@@ -85,11 +85,11 @@ public class IconGrid {
         return ItemStack.EMPTY;
     }
 
-    // ──── 布局参数 ────
+    // ──── 布局参数（cols/尺寸一律夹到 ≥1：取自资源包的布局 JSON，为 0 时 rows() 除零崩溃、网格不可点） ────
 
-    private int cols() { return Layouts.iconGrid().cols; }
-    private int iconSize() { return Layouts.iconGrid().icon_size; }
-    private int rowHeight() { return Layouts.iconGrid().row_height; }
+    private int cols() { return Math.max(1, Layouts.iconGrid().cols); }
+    private int iconSize() { return Math.max(1, Layouts.iconGrid().icon_size); }
+    private int rowHeight() { return Math.max(1, Layouts.iconGrid().row_height); }
     private int thumbWidth() { return Layouts.iconGrid().thumb_width; }
     private int thumbHeight() { return Layouts.iconGrid().thumb_height; }
     private int rows() { return (items.size() + cols() - 1) / cols(); }

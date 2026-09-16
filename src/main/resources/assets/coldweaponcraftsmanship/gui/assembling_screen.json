@@ -1,13 +1,13 @@
 {
   "name_field": {
     "x_offset": 48,
-    "y_offset": 10,
+    "y_offset": 16,
     "width": 160,
     "height": 12
   },
   "slot_list": {
     "x_offset": 115,
-    "y_offset": 22,
+    "y_offset": 28,
     "width": 93,
     "height": 66,
     "row_height": 22,

@@ -65,39 +65,54 @@ public class CwcWeapon extends TieredItem {
         return typeDef != null && typeDef.twoHanded();
     }
 
-    /** 是否短刀武器：底座为手柄，且已装配的刃型声明 offhandAttack（副手右键出刀） */
+    /** 是否短刀武器：底座为手柄，且装配树中存在声明 offhandAttack 的零件（副手右键出刀） */
     public static boolean isOffhandKnife(ItemStack stack) {
         if (stack.getItem() != CwcItems.HANDLE_PART.get()) return false;
-        String identity = stack.get(CwcDataComponents.PART_IDENTITY.get());
-        if (identity == null) return false;
-        Map<String, ItemStack> slots = stack.get(CwcDataComponents.ASSEMBLED_SLOTS.get());
-        if (slots == null || slots.isEmpty()) return false;
-        for (ItemStack child : slots.values()) {
-            String childId = child.get(CwcDataComponents.PART_IDENTITY.get());
-            if (childId == null) continue;
-            PartDef childDef = PartRegistry.getPartDef(childId);
-            PartTypeDef type = childDef != null ? PartRegistry.getTypeDef(childDef.typeId()) : null;
-            if (type != null && type.offhandAttack()) return true;
+        return hasOffhandAttack(stack);
+    }
+
+    /** 深度优先找 offhandAttack 声明：先看本节点，再递归子件（与 WeaponStats 的递归口径一致） */
+    private static boolean hasOffhandAttack(ItemStack stack) {
+        PartTypeDef type = typeOf(stack);
+        if (type == null) return false;
+        if (type.offhandAttack()) return true;
+        Map<String, ItemStack> children = stack.get(CwcDataComponents.ASSEMBLED_SLOTS.get());
+        if (children == null) return false;
+        for (ItemStack child : children.values()) {
+            if (hasOffhandAttack(child)) return true;
         }
         return false;
     }
 
-    /** 普攻方式（刃型指定）——遍历已装零件找到 attack 刃型，取其 combat.style。未装配/查不到按 NORMAL */
+    /**
+     * 普攻方式（刃型指定）——深度优先取第一个 attack 刃型的 combat.style，先看底座自身再递归子树。
+     * 非手柄/未装配/查不到按 NORMAL。
+     */
     public static PartTypeDef.AttackStyle attackStyle(ItemStack stack) {
         if (stack.getItem() != CwcItems.HANDLE_PART.get()) return PartTypeDef.AttackStyle.NORMAL;
-        String identity = stack.get(CwcDataComponents.PART_IDENTITY.get());
-        if (identity == null) return PartTypeDef.AttackStyle.NORMAL;
-        Map<String, ItemStack> slots = stack.get(CwcDataComponents.ASSEMBLED_SLOTS.get());
-        if (slots == null || slots.isEmpty()) return PartTypeDef.AttackStyle.NORMAL;
-        for (ItemStack child : slots.values()) {
-            String childId = child.get(CwcDataComponents.PART_IDENTITY.get());
-            if (childId == null) continue;
-            PartDef childDef = PartRegistry.getPartDef(childId);
-            PartTypeDef type = childDef != null ? PartRegistry.getTypeDef(childDef.typeId()) : null;
-            if (type != null && "attack".equals(type.data().get("type"))) {
-                return type.attackStyle();
-            }
+        PartTypeDef.AttackStyle style = findAttackStyle(stack);
+        return style != null ? style : PartTypeDef.AttackStyle.NORMAL;
+    }
+
+    /** 深度优先找 attack 型的 style：本节点是就取它，否则递归子件；都没有返回 null */
+    private static PartTypeDef.AttackStyle findAttackStyle(ItemStack stack) {
+        PartTypeDef type = typeOf(stack);
+        if (type == null) return null;
+        if ("attack".equals(type.data().get("type"))) return type.attackStyle();
+        Map<String, ItemStack> children = stack.get(CwcDataComponents.ASSEMBLED_SLOTS.get());
+        if (children == null) return null;
+        for (ItemStack child : children.values()) {
+            PartTypeDef.AttackStyle s = findAttackStyle(child);
+            if (s != null) return s;
         }
-        return PartTypeDef.AttackStyle.NORMAL;
+        return null;
+    }
+
+    /** 读某栈的零件类型定义，无 PART_IDENTITY 或查不到返回 null */
+    private static PartTypeDef typeOf(ItemStack stack) {
+        String identity = stack.get(CwcDataComponents.PART_IDENTITY.get());
+        if (identity == null) return null;
+        PartDef def = PartRegistry.getPartDef(identity);
+        return def == null ? null : PartRegistry.getTypeDef(def.typeId());
     }
 }

@@ -1,6 +1,6 @@
 package com.funnyb.cwc.menu;
 
-import com.funnyb.cwc.client.Layouts;
+import com.funnyb.cwc.layout.Layouts;
 import com.funnyb.cwc.crafting.PartDef;
 import com.funnyb.cwc.crafting.PartRegistry;
 import com.funnyb.cwc.crafting.PartTypeDef;
@@ -69,8 +69,11 @@ public class AssemblingMenu extends AbstractContainerMenu implements ContainerLi
                 layout.inventory_start_x, layout.inventory_start_y);
         inventoryLayout.addSlots(this::addSlot, playerInventory);
 
-        // 底座槽——只接受带 PART_IDENTITY 的 CWC 零件
-        this.addSlot(new Slot(baseContainer, 0, 51, 68) {
+        // 底座槽——接受任意 CWC 零件（含自身没有槽位的镡/配重）。
+        // 允许刃当底座是为了拼出"刃+镡"这类子装配体，再整体插进手柄的 blade 槽；
+        // WeaponStats 现在递归遍历整棵装配树，子装配体里的零件属性都会计入。
+        // 底座自身无槽位时界面显示 0 行、没得装，不会出错。
+        this.addSlot(new Slot(baseContainer, 0, 51, 74) {
             @Override
             public boolean mayPlace(ItemStack stack) {
                 return stack.has(CwcDataComponents.PART_IDENTITY.get());
@@ -259,23 +262,37 @@ public class AssemblingMenu extends AbstractContainerMenu implements ContainerLi
         Map<String, java.util.List<String>> constraint = slotDef.constraint();
         if (constraint == null || constraint.isEmpty()) return true;
         for (Map.Entry<String, java.util.List<String>> entry : constraint.entrySet()) {
+            // JSON 写 "constraint": { "weight": null } 时 GSON 会得到"键存在、值为 null"的条目
+            java.util.List<String> allowed = entry.getValue();
+            if (allowed == null) continue;                      // 值为 null 视为该键无约束，避免 NPE
             String value = partData.get(entry.getKey());
-            if (value == null || !entry.getValue().contains(value)) {
+            if (value == null || !allowed.contains(value)) {
                 return false;
             }
         }
         return true;
     }
 
-    /** 服务端修改底座物品的自定义名称——空名移除 CUSTOM_NAME 回落默认名 */
+    /** 名称长度上限——对齐原版铁砧的服务端限制 */
+    public static final int MAX_NAME_LENGTH = 50;
+
+    /**
+     * 服务端修改底座物品的自定义名称——空名移除 CUSTOM_NAME 回落默认名。
+     * 名称来自客户端包，必须在此夹长度：包用 STRING_UTF8（约 32KB），而该组件会同步给
+     * 所有玩家并写进存档，不夹会被超长名称放大内存/带宽、拖慢 GUI 与存档。
+     */
     public void renameItem(String name) {
         ItemStack stack = baseContainer.getItem(0);
         if (!stack.isEmpty()) {
-            if (name.isEmpty()) {
+            String sanitized = name == null ? "" : name.trim();
+            if (sanitized.length() > MAX_NAME_LENGTH) {
+                sanitized = sanitized.substring(0, MAX_NAME_LENGTH);
+            }
+            if (sanitized.isEmpty()) {
                 stack.remove(net.minecraft.core.component.DataComponents.CUSTOM_NAME);
             } else {
                 stack.set(net.minecraft.core.component.DataComponents.CUSTOM_NAME,
-                        net.minecraft.network.chat.Component.literal(name));
+                        net.minecraft.network.chat.Component.literal(sanitized));
             }
             broadcastChanges();
         }

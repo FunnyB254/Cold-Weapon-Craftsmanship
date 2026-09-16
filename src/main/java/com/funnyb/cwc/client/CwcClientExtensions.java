@@ -16,7 +16,7 @@ import net.neoforged.neoforge.client.extensions.common.RegisterClientExtensionsE
  * 客户端物品扩展注册——为 HANDLE_PART 和 PART 挂接复合渲染器（底座 + 已装零件，递归嵌套）。
  * PART 也走复合渲染，使中间状态（如刃上装了护手）单独显示时也渲染子零件。
  */
-@EventBusSubscriber(modid = ColdWeaponCraftsmanship.MODID, bus = EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
+@EventBusSubscriber(modid = ColdWeaponCraftsmanship.MODID, value = Dist.CLIENT)
 public class CwcClientExtensions {
 
     /** 装配复合渲染器（懒加载单例） */

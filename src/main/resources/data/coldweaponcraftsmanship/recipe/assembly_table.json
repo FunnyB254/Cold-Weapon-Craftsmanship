@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    " I ",
+    "BCB",
+    " I "
+  ],
+  "key": {
+    "I": { "item": "minecraft:iron_ingot" },
+    "B": { "item": "minecraft:iron_block" },
+    "C": { "item": "minecraft:crafting_table" }
+  },
+  "result": {
+    "id": "coldweaponcraftsmanship:assembly_table",
+    "count": 1
+  }
+}

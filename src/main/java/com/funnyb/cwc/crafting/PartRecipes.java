@@ -1,5 +1,8 @@
 package com.funnyb.cwc.crafting;
 
+import com.funnyb.cwc.ColdWeaponCraftsmanship;
+
+import net.minecraft.ResourceLocationException;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
@@ -42,8 +45,10 @@ public final class PartRecipes {
     public static boolean canCraft(Player player, List<IngredientDef> ingredients) {
         Inventory inv = player.getInventory();
         for (IngredientDef ing : ingredients) {
-            if (ing == null) continue;
-            if (!hasEnough(inv, ingredientToStack(ing))) return false;
+            if (ing == null) continue;                          // JSON 里的 null 占位 = 该格无要求
+            ItemStack needed = ingredientToStack(ing);
+            if (needed.isEmpty()) return false;                 // 材料解析失败 = 配方损坏，拒绝制造
+            if (!hasEnough(inv, needed)) return false;
         }
         return true;
     }
@@ -63,11 +68,32 @@ public final class PartRecipes {
         }
     }
 
-    /** 将 IngredientDef 转为 ItemStack */
+    /**
+     * 将 IngredientDef 转为 ItemStack；解析失败一律返回 {@link ItemStack#EMPTY}。
+     * <p>
+     * 调用方必须把 EMPTY 当作"配方损坏"处理，**不能**当成"无材料要求"：
+     * {@code BuiltInRegistries.ITEM} 是 defaulted 注册表（默认值 minecraft:air），
+     * 未知 id 返回 AIR 而非 null，直接构造只会得到空栈，而 hasEnough/consume 对空栈是放行的
+     * —— 那等于配方不需要任何材料。同理非法 id 字符串（含空格/大写）会抛
+     * {@link ResourceLocationException}，也必须在此拦下，否则会冒到数据包处理器导致玩家断连。
+     */
     public static ItemStack ingredientToStack(IngredientDef ing) {
         if (ing.item() == null) return ItemStack.EMPTY;
-        Item item = BuiltInRegistries.ITEM.get(ResourceLocation.parse(ing.item()));
-        return new ItemStack(item != null ? item : net.minecraft.world.item.Items.BARRIER, ing.count());
+        ResourceLocation loc;
+        try {
+            loc = ResourceLocation.parse(ing.item());
+        } catch (ResourceLocationException e) {
+            ColdWeaponCraftsmanship.LOGGER.error(
+                    "Invalid item id '{}' in recipe ingredient, treating recipe as broken", ing.item());
+            return ItemStack.EMPTY;
+        }
+        if (!BuiltInRegistries.ITEM.containsKey(loc)) {
+            ColdWeaponCraftsmanship.LOGGER.error(
+                    "Unknown item '{}' in recipe ingredient, treating recipe as broken", loc);
+            return ItemStack.EMPTY;
+        }
+        // count <= 0 同样会得到空栈（= 免费），至少按 1 计
+        return new ItemStack(BuiltInRegistries.ITEM.get(loc), Math.max(1, ing.count()));
     }
 
     private static boolean hasEnough(Inventory inv, ItemStack needed) {

@@ -1,6 +1,7 @@
 {
   "itemGroup.coldweaponcraftsmanship": "Cold Weapon Craftsmanship",
-  "item.coldweaponcraftsmanship.creative_part_star": "Creative Part Star",
+  "block.coldweaponcraftsmanship.part_crafting_table": "Part Crafting Table",
+  "block.coldweaponcraftsmanship.assembly_table": "Assembly Table",
   "item.coldweaponcraftsmanship.part": "Part",
   "item.coldweaponcraftsmanship.handle_part": "Handle Part",
   "screen.coldweaponcraftsmanship.craft_parts": "Craft Parts",

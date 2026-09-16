@@ -1,4 +1,4 @@
-package com.funnyb.cwc.client;
+package com.funnyb.cwc.layout;
 
 import com.funnyb.cwc.ColdWeaponCraftsmanship;
 import com.google.gson.Gson;
@@ -8,9 +8,9 @@ import com.google.gson.JsonDeserializer;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.server.packs.resources.ResourceManager;
-import net.neoforged.fml.loading.FMLEnvironment;
 
 import java.io.Reader;
+import java.util.function.Supplier;
 
 /**
  * GUI 布局加载器——从资源包中加载 JSON 布局文件，解析为类型化的布局数据对象。
@@ -52,11 +52,9 @@ public final class Layouts {
     // 缓存实例，首次访问时惰性加载
     private static CraftingMenu craftingMenu;
     private static CraftingScreen craftingScreen;
-    private static CreativePartStar creativePartStar;
     private static IconGrid iconGrid;
     private static InventoryLayout inventoryLayout;
     private static BaseInventoryScreen baseInventoryScreen;
-    private static ImageButton imageButton;
     private static AssemblingScreenLayout assemblingScreen;
 
     private Layouts() {}
@@ -65,11 +63,9 @@ public final class Layouts {
     public static void invalidate() {
         craftingMenu = null;
         craftingScreen = null;
-        creativePartStar = null;
         iconGrid = null;
         inventoryLayout = null;
         baseInventoryScreen = null;
-        imageButton = null;
         assemblingScreen = null;
     }
 
@@ -87,12 +83,6 @@ public final class Layouts {
     public static CraftingScreen craftingScreen() {
         if (craftingScreen == null) craftingScreen = load("gui/crafting_screen.json", CraftingScreen.class);
         return craftingScreen;
-    }
-
-    /** @return 选择界面全部控件布局 */
-    public static CreativePartStar creativePartStar() {
-        if (creativePartStar == null) creativePartStar = load("gui/creative_part_star_screen.json", CreativePartStar.class);
-        return creativePartStar;
     }
 
     /** @return 图标网格尺寸和滚动条参数 */
@@ -113,12 +103,6 @@ public final class Layouts {
         return baseInventoryScreen;
     }
 
-    /** @return 透明按钮 hover 高亮颜色 */
-    public static ImageButton imageButton() {
-        if (imageButton == null) imageButton = load("gui/image_button.json", ImageButton.class);
-        return imageButton;
-    }
-
     /** @return 装配界面布局 */
     public static AssemblingScreenLayout assemblingScreen() {
         if (assemblingScreen == null) assemblingScreen = load("gui/assembling_screen.json", AssemblingScreenLayout.class);
@@ -130,26 +114,44 @@ public final class Layouts {
     // ═══════════════════════════════════════════
 
     /**
+     * 布局 JSON 的资源管理器来源——由客户端在启动时注入（见 {@link #setResourceManagerSupplier}）。
+     * 本类位于**通用包**，绝不能直接引用 {@code net.minecraft.client.Minecraft}：menu 类由服务端
+     * 构造，一旦常量池里有客户端引用，专用服务器会在类校验阶段被 RuntimeDistCleaner 拦下并崩溃。
+     * 服务端保持默认的空供给，{@link #load} 因而一律返回 Java 默认值。
+     */
+    private static Supplier<ResourceManager> resourceManagerSupplier = () -> null;
+
+    /** 客户端注入资源管理器来源并清空已有缓存（仅客户端调用） */
+    public static void setResourceManagerSupplier(Supplier<ResourceManager> supplier) {
+        resourceManagerSupplier = supplier;
+        invalidate();
+    }
+
+    /**
      * 从资源包加载 JSON 并反序列化为类型 T。
-     * 服务端直接返回默认实例（不加载资源），客户端加载失败时回退到默认实例。
+     * 未注入资源管理器（服务端）时直接返回默认实例；客户端加载失败时同样回退默认实例。
      */
     private static <T> T load(String path, Class<T> clazz) {
-        // 服务端不渲染 GUI，槽位坐标无意义，直接返回默认值避免 Minecraft 类不可用
-        if (!FMLEnvironment.dist.isClient()) {
-            return newDefault(clazz);
+        ResourceManager rm = resourceManagerSupplier.get();
+        if (rm == null) {
+            return newDefault(clazz);   // 服务端不渲染 GUI：槽位坐标无意义，也不该触碰客户端资源
         }
         ResourceLocation loc = ResourceLocation.fromNamespaceAndPath(ColdWeaponCraftsmanship.MODID, path);
         try {
-            ResourceManager rm = net.minecraft.client.Minecraft.getInstance().getResourceManager();
             Resource resource = rm.getResourceOrThrow(loc);
             try (Reader reader = resource.openAsReader()) {
-                return GSON.fromJson(reader, clazz);
+                T parsed = GSON.fromJson(reader, clazz);
+                // 空文件 / 字面量 null 的 JSON 会让 GSON 返回 null，必须回退默认实例，
+                // 否则 null 会被缓存，调用方链式取值（如 craftingScreen().cycle_button）立刻 NPE
+                if (parsed != null) return parsed;
+                ColdWeaponCraftsmanship.LOGGER.error(
+                        "Layout '{}' parsed to null (empty or literal-null JSON), using Java defaults", path);
             }
         } catch (Exception e) {
             ColdWeaponCraftsmanship.LOGGER.error(
                     "Failed to load layout '{}', using Java defaults. Cause: {}", path, e.toString());
-            return newDefault(clazz);
         }
+        return newDefault(clazz);
     }
 
     /** 通过无参构造器创建默认布局实例 */
@@ -231,31 +233,6 @@ public final class Layouts {
             part_grid.y_offset = 8;
             part_grid.width = 54;
             part_grid.height = 80;
-        }
-    }
-
-    // ──── 选择界面 ──── 背景、按钮、标签 ────
-
-    public static class CreativePartStar {
-        public int image_width = 256;
-        public int image_height = 166;
-        public int tex_width = 256;
-        public int tex_height = 256;
-        public int background_color = 0xC0101010;
-        public ButtonDef button_craft = new ButtonDef();
-        public ButtonDef button_assemble = new ButtonDef();
-        public LabelDef label_craft = new LabelDef();
-        public LabelDef label_assemble = new LabelDef();
-
-        public CreativePartStar() {
-            button_craft.x_offset = -1;    button_craft.y_offset = 62;
-            button_craft.width = 44;        button_craft.height = 44;
-            button_assemble.x_offset = 213; button_assemble.y_offset = 62;
-            button_assemble.width = 44;     button_assemble.height = 44;
-            label_craft.x_offset = 22;      label_craft.y_offset = 94;
-            label_craft.color = 0xFFFFFF;
-            label_assemble.x_offset = 236;  label_assemble.y_offset = 94;
-            label_assemble.color = 0xFFFFFF;
         }
     }
 
@@ -343,11 +320,5 @@ public final class Layouts {
     public static class TextDef {
         public int x_offset, y_offset;
         public TextDef() {}
-    }
-
-    // ──── 透明按钮 ────
-
-    public static class ImageButton {
-        public int hover_color = 0x30FFFFFF;
     }
 }

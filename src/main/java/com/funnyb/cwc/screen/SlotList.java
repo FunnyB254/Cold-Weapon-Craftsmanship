@@ -1,6 +1,6 @@
 package com.funnyb.cwc.screen;
 
-import com.funnyb.cwc.client.Layouts;
+import com.funnyb.cwc.layout.Layouts;
 import com.funnyb.cwc.crafting.PartTypeDef;
 
 import net.minecraft.client.Minecraft;
@@ -14,17 +14,15 @@ import java.util.Map;
 /**
  * 行级滚动列表——装配界面零件改造列表的视觉层。
  * <p>
- * 创造模式式滚动：槽位位置固定（由真实 InputSlot 渲染物品框），本组件只负责
- * 行背景贴图、槽位名称文本、详情控件悬停 tooltip 的渲染，以及滚动交互。
+ * 创造模式式滚动：槽位位置固定（由真实 InputSlot 渲染物品框），行背景（凹底 + 槽位框）
+ * 已永久烘焙在 assembling.png 上，本组件只负责槽位名称文本、详情热区字形与悬停
+ * tooltip 的渲染，以及滚动交互。
  * 滚动行数由服务端 ContainerData 权威持有，本组件仅向服务端发送滚动意图。
  * <p>
  * 布局参数从 assets/cwc/gui/assembling_screen.json 读取，资源包可覆盖。
  */
 public class SlotList {
 
-    /** 行背景贴图——88×22 */
-    private static final ResourceLocation ROW_TEX =
-            ResourceLocation.fromNamespaceAndPath("coldweaponcraftsmanship", "textures/gui/slot_row.png");
     /** 滚动条滑块贴图 */
     private static final ResourceLocation SLIDER_TEX =
             ResourceLocation.fromNamespaceAndPath("coldweaponcraftsmanship", "textures/gui/slider.png");
@@ -215,8 +213,8 @@ public class SlotList {
     // ──── 渲染 ────
 
     /**
-     * 渲染列表：scissor 裁剪 → 可见 3 行背景贴图 + 槽位名称文本 → 滑块。
-     * 物品框由真实 InputSlot 渲染（本组件不画）。
+     * 渲染列表：scissor 裁剪 → 各行的详情热区字形 + 槽位名称文本 → 滑块。
+     * 行背景与物品框都不由本组件画（前者烘焙在面板上，后者由真实 InputSlot 渲染）。
      */
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY) {
         guiGraphics.enableScissor(x, y, x + width, y + height);
@@ -226,15 +224,18 @@ public class SlotList {
             int ry = visibleRowY(i);
             if (row == null) break;
 
-            // 行背景贴图（主体区，从滑条右侧开始）
-            guiGraphics.blit(ROW_TEX, bodyX(), ry, 0, 0, bodyWidth(), rowHeight(), bodyWidth(), rowHeight());
+            // 行背景【不在这里画】——凹底和 3 个槽位框已永久烘焙进 assembling.png，
+            // 像原版容器那样固定不动，滚动只换内容。这里只画随行变化的东西。
 
-            // 详情控件悬停高亮——纯展示区域，悬停时高亮提示可查看
+            // 详情热区——带键体的按钮放不下（12x12 扣掉原版九宫格 3px 边框只剩 6x6），
+            // 所以只画字形，悬停时垫一块高亮。
             if (isOnInfo(mouseX, mouseY, i)) {
                 guiGraphics.fill(bodyX() + infoOffsetX(), ry + infoOffsetY(),
                         bodyX() + infoOffsetX() + infoSize(), ry + infoOffsetY() + infoSize(),
                         infoHoverColor());
             }
+            guiGraphics.blit(GuiIcons.INFO, bodyX() + infoOffsetX(), ry + infoOffsetY(),
+                    0, 0, infoSize(), infoSize(), infoSize(), infoSize());
 
             // 槽位名称——按像素宽度截断 + 省略号
             String name = Component.translatable(row.slotDef().name()).getString();
@@ -286,6 +287,7 @@ public class SlotList {
             sb.append(Component.translatable(key + ".cwc").getString());
             sb.append(colon);
             var values = entry.getValue();
+            if (values == null) continue;      // JSON 写 "constraint": { "weight": null } 时值为 null，跳过
             for (int i = 0; i < values.size(); i++) {
                 if (i > 0) sb.append(separator);
                 sb.append(Component.translatable(key + ".cwc." + values.get(i)).getString());

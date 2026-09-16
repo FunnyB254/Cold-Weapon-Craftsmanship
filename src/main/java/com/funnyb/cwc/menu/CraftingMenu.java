@@ -1,6 +1,6 @@
 package com.funnyb.cwc.menu;
 
-import com.funnyb.cwc.client.Layouts;
+import com.funnyb.cwc.layout.Layouts;
 import com.funnyb.cwc.crafting.IngredientDef;
 import com.funnyb.cwc.crafting.PartDef;
 import com.funnyb.cwc.crafting.PartRecipes;
@@ -108,6 +108,13 @@ public class CraftingMenu extends AbstractContainerMenu {
         broadcastChanges();
     }
 
+    /**
+     * shift 点击输出槽——每次取一件放入背包并扣一份材料，直到背包装不下或材料不足。
+     * <p>
+     * 每轮**必须重新校验 canCraft**：循环靠 updateRecipe() 重置输出槽来推进，若只移动副本
+     * 而不校验材料，一旦配方损坏（材料解析不出来）导致 canCraft 恒真，就会在一次点击里
+     * 把背包刷满成品。额外的迭代上限是兜底，保证即使材料列表异常也一定会终止。
+     */
     @Override
     public ItemStack quickMoveStack(Player player, int index) {
         // 输出槽在物品栏最后4个槽中的最后一个
@@ -119,18 +126,19 @@ public class CraftingMenu extends AbstractContainerMenu {
         var ingredients = def.recipes().get(currentRecipeIndex);
 
         // 套用原版循环逻辑：每次取一个 → 尝试放入背包 → 成功则扣材料刷新 → 循环
+        int maxIterations = Math.max(1, this.slots.size());
         int crafted = 0;
-        while (true) {
+        while (crafted < maxIterations && PartRecipes.canCraft(player, ingredients)) {
             ItemStack output = craftContainer.getItem(3);
             if (output.isEmpty()) break;
             ItemStack toMove = output.copy();
             toMove.setCount(1);
-            if (!this.moveItemStackTo(toMove, 0, 36, false)) break;
+            if (!this.moveItemStackTo(toMove, 0, 36, false)) break;   // 背包满
             PartRecipes.consumeMaterials(player, ingredients);
             crafted++;
             updateRecipe();
         }
-        return crafted > 0 ? ItemStack.EMPTY : ItemStack.EMPTY;
+        return ItemStack.EMPTY;
     }
 
     @Override

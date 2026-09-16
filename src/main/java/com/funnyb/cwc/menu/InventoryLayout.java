@@ -1,11 +1,9 @@
 package com.funnyb.cwc.menu;
 
-import com.funnyb.cwc.client.Layouts;
-import com.funnyb.cwc.item.CreativePartStar;
+import com.funnyb.cwc.layout.Layouts;
 
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.Slot;
 
 import java.util.function.Consumer;
@@ -69,36 +67,20 @@ public class InventoryLayout {
 
     /**
      * 创建所有物品栏槽位（背包 27 格 + 快捷栏 9 格）并通过回调添加。
-     * 所有槽位均为 LockedSlot——禁止拾取创造零件之星，防止误操作丢出该物品。
+     * 均为普通原版槽位——入口改成工作方块后，物品栏里不再有"需要保护、禁止取出"的入口物品。
      */
     public void addSlots(Consumer<Slot> slotConsumer, Inventory playerInventory) {
         // 背包区域：3 行 × 9 列
         for (int row = 0; row < ROWS; row++) {
             for (int col = 0; col < COLS; col++) {
-                slotConsumer.accept(new LockedSlot(playerInventory, col + row * COLS + HOTBAR_SIZE,
+                slotConsumer.accept(new Slot(playerInventory, col + row * COLS + HOTBAR_SIZE,
                         startX + col * SLOT_SIZE, startY + row * SLOT_SIZE));
             }
         }
         // 快捷栏区域：1 行 × 9 列，与背包之间有间隔
         for (int col = 0; col < HOTBAR_SIZE; col++) {
-            slotConsumer.accept(new LockedSlot(playerInventory, col,
+            slotConsumer.accept(new Slot(playerInventory, col,
                     startX + col * SLOT_SIZE, hotbarY));
-        }
-    }
-
-    /**
-     * 物品栏锁定槽位——继承原版 Slot，额外禁止拾取创造零件之星。
-     * 该物品右键用于打开选择界面，不应被拖入物品栏或丢出。
-     */
-    private static class LockedSlot extends Slot {
-        public LockedSlot(Inventory inventory, int index, int x, int y) {
-            super(inventory, index, x, y);
-        }
-
-        /** 若物品是 CreativePartStar 则禁止拾取 */
-        @Override
-        public boolean mayPickup(Player player) {
-            return !(getItem().getItem() instanceof CreativePartStar);
         }
     }
 }

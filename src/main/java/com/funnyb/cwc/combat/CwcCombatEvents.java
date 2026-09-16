@@ -5,6 +5,8 @@ import com.funnyb.cwc.registry.CwcDataComponents;
 import com.funnyb.cwc.registry.CwcItems;
 
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.DamageTypeTags;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -22,6 +24,12 @@ import net.neoforged.neoforge.event.entity.player.AttackEntityEvent;
  */
 public class CwcCombatEvents {
 
+    /**
+     * 双手武器格挡的**基础**减伤。镡在此之上另加成（见 {@code BLOCK_VALUE}），
+     * 所以"不带镡"与"带镡"应当差出一档：基础 25%、带镡 50%。
+     */
+    private static final float BASE_BLOCK_REDUCTION = 0.25f;
+
     @SubscribeEvent
     public void onAttack(AttackEntityEvent event) {
         Player player = event.getEntity();
@@ -38,17 +46,22 @@ public class CwcCombatEvents {
 
     /**
      * 双手武器格挡减伤：玩家右键按住格挡中（isUsingItem）时，受到的伤害按
-     * 基础 50% + 镡加成（BLOCK_VALUE）减伤。在护甲计算前触发。
+     * 基础 {@link #BASE_BLOCK_REDUCTION} + 镡加成（BLOCK_VALUE）减伤。在护甲计算前触发。
+     * <p>
+     * 减伤范围对齐原版盾牌：{@code BYPASSES_SHIELD} 类伤害（摔落、火焰、溺水、虚空、饥饿等）
+     * 一律不吃格挡——本事件在 {@code LivingEntity.hurt} 最顶部触发，若不排除则会把这些伤害也减半。
      */
     @SubscribeEvent
     public void onHurt(LivingIncomingDamageEvent event) {
         if (!(event.getEntity() instanceof Player player)) return;
         if (player.level().isClientSide) return;              // 服务端权威
+        if (event.getSource().is(DamageTypeTags.BYPASSES_SHIELD)) return;  // 绕过护盾的伤害不吃格挡
         if (!player.isUsingItem()) return;                    // 右键按住格挡中
         ItemStack stack = player.getMainHandItem();
         if (stack.getItem() != CwcItems.HANDLE_PART.get()) return;  // 只本模组武器
         if (!CwcWeapon.isTwoHandedStack(stack)) return;       // 只双手武器格挡
-        float reduction = 0.5f + stack.getOrDefault(CwcDataComponents.BLOCK_VALUE.get(), 0f);
-        event.setAmount(event.getAmount() * (1 - Math.min(reduction, 0.95f)));
+        float reduction = BASE_BLOCK_REDUCTION + stack.getOrDefault(CwcDataComponents.BLOCK_VALUE.get(), 0f);
+        // 上下限都夹：上限 95% 防止无敌；下限 0 防止 BLOCK_VALUE 写成负数时反而放大伤害
+        event.setAmount(event.getAmount() * (1 - Mth.clamp(reduction, 0f, 0.95f)));
     }
 }

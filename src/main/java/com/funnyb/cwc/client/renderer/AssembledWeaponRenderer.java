@@ -31,7 +31,8 @@ import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -53,8 +54,14 @@ public class AssembledWeaponRenderer extends BlockEntityWithoutLevelRenderer {
     /** 薄片背面 z（原版实测 7.5/16）——1px 厚度 */
     private static final float BACK_Z = 0.46875f;
 
-    /** 合成贴图缓存：装配键 → 合成体 */
-    private static final Map<String, WeaponComposite> COMPOSITES = new HashMap<>();
+    /** 合成贴图缓存上限——超出后按 LRU 淘汰并释放纹理，避免零件组合无限累积 */
+    private static final int MAX_COMPOSITES = 256;
+
+    /**
+     * 合成贴图缓存：装配键 → 合成体。
+     * accessOrder = true 使 get/put 都刷新访问序，迭代顺序即"最久未用 → 最近使用"，便于超限时淘汰队首。
+     */
+    private static final Map<String, WeaponComposite> COMPOSITES = new LinkedHashMap<>(64, 0.75f, true);
 
     /**
      * 合成体：CPU 图片 + 动态纹理路径 + 渲染类型 + 模型包围盒 + 顶点网格缓存。
@@ -221,9 +228,29 @@ public class AssembledWeaponRenderer extends BlockEntityWithoutLevelRenderer {
         WeaponComposite comp = COMPOSITES.get(k);
         if (comp == null) {
             comp = buildComposite(parts);
-            if (comp != null) COMPOSITES.put(k, comp);
+            if (comp != null) {
+                COMPOSITES.put(k, comp);
+                evictOverflow();
+            }
         }
         return comp;
+    }
+
+    /** 缓存超上限时淘汰最久未用的合成体并释放其纹理 */
+    private static void evictOverflow() {
+        Iterator<Map.Entry<String, WeaponComposite>> it = COMPOSITES.entrySet().iterator();
+        while (COMPOSITES.size() > MAX_COMPOSITES && it.hasNext()) {
+            releaseComposite(it.next().getValue());
+            it.remove();
+        }
+    }
+
+    /**
+     * 释放一条合成体占用的纹理。{@code TextureManager.release} → {@code DynamicTexture.close()}
+     * 会连带 close 同一个 NativeImage（GL 纹理 id 与本地内存一并归还），且 close 本身幂等。
+     */
+    private static void releaseComposite(WeaponComposite comp) {
+        Minecraft.getInstance().getTextureManager().release(comp.texPath);
     }
 
     /** 把各零件贴图按 layer 顺序合成到一张贴图并上传为动态纹理 */
@@ -295,8 +322,15 @@ public class AssembledWeaponRenderer extends BlockEntityWithoutLevelRenderer {
         return new WeaponComposite(canvas, path, rt, bx0, by0, bx1, by1);
     }
 
-    /** 清空合成缓存（资源重载后动态纹理被释放，需重建） */
+    /**
+     * 清空合成缓存并**释放**全部动态纹理（资源重载后调用）。
+     * 只 clear() 不 release 会让 DynamicTexture 继续挂在 TextureManager.byPath 上，
+     * 它持有的 NativeImage 因而永不回收——重载后会按新路径再注册一份，占用逐次翻倍。
+     */
     public static void clearCache() {
+        for (WeaponComposite comp : COMPOSITES.values()) {
+            releaseComposite(comp);
+        }
         COMPOSITES.clear();
     }
 

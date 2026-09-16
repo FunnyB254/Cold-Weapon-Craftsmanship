@@ -20,14 +20,18 @@ public class CwcCreativeTabs {
     public static final DeferredRegister<CreativeModeTab> CREATIVE_MODE_TABS =
             DeferredRegister.create(Registries.CREATIVE_MODE_TAB, ColdWeaponCraftsmanship.MODID);
 
-    /** CWC 主标签页——图标为创造零件之星，列出所有 CWC 物品 */
+    /** CWC 主标签页——图标为制造台，列出所有 CWC 物品 */
     public static final DeferredHolder<CreativeModeTab, CreativeModeTab> MAIN_TAB = CREATIVE_MODE_TABS.register(
             "main",
             () -> CreativeModeTab.builder()
                     .title(Component.translatable("itemGroup.coldweaponcraftsmanship"))
-                    .icon(() -> new ItemStack(CwcItems.CREATIVE_PART_STAR.get()))
+                    .icon(() -> new ItemStack(CwcItems.PART_CRAFTING_TABLE_ITEM.get()))
                     .displayItems((params, output) -> {
-                        output.accept(CwcItems.CREATIVE_PART_STAR.get());
+                        output.accept(CwcItems.PART_CRAFTING_TABLE_ITEM.get());
+                        output.accept(CwcItems.ASSEMBLY_TABLE_ITEM.get());
+                        // 零件与手柄没有原版配方（只能靠制造台现造），放进创造栏方便测试
+                        output.accept(CwcItems.PART.get());
+                        output.accept(CwcItems.HANDLE_PART.get());
                     })
                     .build());
 

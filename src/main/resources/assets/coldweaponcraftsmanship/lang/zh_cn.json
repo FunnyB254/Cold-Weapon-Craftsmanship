@@ -1,6 +1,7 @@
 {
   "itemGroup.coldweaponcraftsmanship": "冷兵器工艺",
-  "item.coldweaponcraftsmanship.creative_part_star": "创造零件之星",
+  "block.coldweaponcraftsmanship.part_crafting_table": "制造台",
+  "block.coldweaponcraftsmanship.assembly_table": "装配台",
   "item.coldweaponcraftsmanship.part": "零件",
   "item.coldweaponcraftsmanship.handle_part": "手柄零件",
   "screen.coldweaponcraftsmanship.craft_parts": "制造零件",

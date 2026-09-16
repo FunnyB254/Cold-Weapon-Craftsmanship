@@ -1,12 +1,11 @@
 package com.funnyb.cwc.screen;
 
-import com.funnyb.cwc.client.Layouts;
+import com.funnyb.cwc.layout.Layouts;
 import com.funnyb.cwc.crafting.PartTypeDef;
 import com.funnyb.cwc.menu.AssemblingMenu;
 import com.funnyb.cwc.network.serverbound.RenamePartPacket;
 import com.funnyb.cwc.network.serverbound.SetScrollPacket;
 
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.network.chat.Component;
@@ -27,7 +26,6 @@ import java.util.Objects;
 public class AssemblingScreen extends BaseInventoryScreen<AssemblingMenu> {
 
     private ImageButton helpButton;
-    private ImageButton backButton;
     private EditBox nameField;
     private String lastCustomName = null;
 
@@ -47,11 +45,7 @@ public class AssemblingScreen extends BaseInventoryScreen<AssemblingMenu> {
         super.init();
 
         helpButton = this.addRenderableWidget(new ImageButton(
-                this.leftPos + 212, this.topPos + 7, 16, 16, () -> {}));
-
-        backButton = this.addRenderableWidget(new ImageButton(
-                this.leftPos + 230, this.topPos + 7, 16, 16,
-                () -> Minecraft.getInstance().setScreen(new CreativePartStarScreen())));
+                this.leftPos + 212, this.topPos + 13, 16, 16, GuiIcons.HELP, () -> {}));
 
         // 改名输入框——位置和尺寸从 JSON 布局读取
         var nf = Layouts.assemblingScreen().name_field;
@@ -130,9 +124,12 @@ public class AssemblingScreen extends BaseInventoryScreen<AssemblingMenu> {
     @Override
     protected void renderLabels(GuiGraphics guiGraphics, int mouseX, int mouseY) {
         var lay = Layouts.craftingScreen();
-        guiGraphics.drawCenteredString(this.font,
-                Component.translatable("screen.coldweaponcraftsmanship.assemble_parts"),
-                lay.title_x, lay.title_y, lay.title_color);
+        // 居中绘制且【关闭阴影】：drawCenteredString 内部强制 dropShadow=true，
+        // 会在 (+1,+1) 处用暗色重画一遍，在浅色面板上表现为重影。
+        // 原版 AbstractContainerScreen.renderLabels 画标题同样传 false。
+        Component title = Component.translatable("screen.coldweaponcraftsmanship.assemble_parts");
+        guiGraphics.drawString(this.font, title,
+                lay.title_x - this.font.width(title) / 2, lay.title_y, lay.title_color, false);
     }
 
     @Override
@@ -184,13 +181,10 @@ public class AssemblingScreen extends BaseInventoryScreen<AssemblingMenu> {
         // super.render() 内顺序：renderBg(背景+行背景) → widgets(改名框) → slots → tooltip
         super.render(guiGraphics, mouseX, mouseY, partialTick);
 
-        // tooltip：帮助/返回 > 列表详情控件
+        // tooltip：帮助 > 列表详情控件
         if (helpButton.isHovered()) {
             guiGraphics.renderComponentTooltip(this.font,
                     List.of(Component.translatable("tooltip.cwc.help")), mouseX, mouseY);
-        } else if (backButton.isHovered()) {
-            guiGraphics.renderComponentTooltip(this.font,
-                    List.of(Component.translatable("tooltip.cwc.back")), mouseX, mouseY);
         } else {
             int visibleIdx = slotList.visibleRowAt(mouseX, mouseY);
             if (visibleIdx >= 0 && slotList.isOnInfo(mouseX, mouseY, visibleIdx)) {

@@ -1,9 +1,9 @@
 package com.funnyb.cwc.registry;
 
 import com.funnyb.cwc.ColdWeaponCraftsmanship;
-import com.funnyb.cwc.item.CreativePartStar;
 import com.funnyb.cwc.item.CwcWeapon;
 
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Tiers;
 import net.neoforged.bus.api.IEventBus;
@@ -19,9 +19,13 @@ public class CwcItems {
     /** 物品 DeferredRegister，命名空间为 cwc */
     public static final DeferredRegister.Items ITEMS = DeferredRegister.createItems(ColdWeaponCraftsmanship.MODID);
 
-    /** 创造零件之星——堆叠 1，右键打开选择界面 */
-    public static final DeferredItem<Item> CREATIVE_PART_STAR = ITEMS.register("creative_part_star",
-            () -> new CreativePartStar(new Item.Properties().stacksTo(1)));
+    /** 制造台方块物品——右键打开零件制造界面 */
+    public static final DeferredItem<BlockItem> PART_CRAFTING_TABLE_ITEM =
+            ITEMS.registerSimpleBlockItem(CwcBlocks.PART_CRAFTING_TABLE);
+
+    /** 装配台方块物品——右键打开武器装配界面 */
+    public static final DeferredItem<BlockItem> ASSEMBLY_TABLE_ITEM =
+            ITEMS.registerSimpleBlockItem(CwcBlocks.ASSEMBLY_TABLE);
 
     /** 刃/镡/饰类零件——可被插入其他零件 */
     public static final DeferredItem<Item> PART = ITEMS.register("part",

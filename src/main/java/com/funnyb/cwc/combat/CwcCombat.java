@@ -36,7 +36,7 @@ import net.minecraft.world.phys.Vec3;
  * CWC 统一攻击管线——主手、副手（以及未来所有攻击方式）共用同一条流水线：
  *
  * <pre>
- * 触发 → 武器校验 → 距离解析(resolveReach) → 冷却校验(isCooldownReady)
+ * 触发 → 武器校验 → 距离解析(resolveReach) → 冷却校验(服务端主手用 {@link #isServerCooldownReady}，其余用 {@link #isCooldownReady})
  *     → 伤害结算(applyDamage / applySweep) → 冷却施加 → 反馈(挥动/音效)
  * </pre>
  *
@@ -77,7 +77,7 @@ public final class CwcCombat {
     public static void performMainHandAttack(ServerPlayer player, int targetId) {
         ItemStack weapon = player.getMainHandItem();
         if (weapon.getItem() != CwcItems.HANDLE_PART.get()) return;            // 只认主手 CWC 武器
-        if (!isCooldownReady(player, InteractionHand.MAIN_HAND, weapon)) return; // 服务端权威冷却
+        if (!isServerCooldownReady(player, InteractionHand.MAIN_HAND, weapon)) return; // 服务端权威冷却（含错位余量）
 
         ServerLevel level = player.serverLevel();
         Entity target = targetId >= 0 ? level.getEntity(targetId) : null;
@@ -162,10 +162,62 @@ public final class CwcCombat {
         return playerRange - mainBonus + knifeBonus;
     }
 
-    /** 冷却校验——按手：主手用原版攻速条，副手用独立冷却键 */
+    /** 主手**手动点击**允许出手的最低冷却进度——到九成即可出手 */
+    public static final float MAIN_CLICK_MIN_SCALE = 0.9f;
+
+    /** 主手**自动攻击**允许出手的最低冷却进度——必须满冷却 */
+    public static final float MAIN_AUTO_MIN_SCALE = 1.0f;
+
+    /** 冷却校验——按手，主手按 {@link #MAIN_AUTO_MIN_SCALE} 取满冷却 */
     public static boolean isCooldownReady(Player player, InteractionHand hand, ItemStack weapon) {
+        return isCooldownReady(player, hand, weapon, MAIN_AUTO_MIN_SCALE);
+    }
+
+    /**
+     * 冷却校验——{@code minScale} 是允许出手的最低冷却进度。
+     * <p>
+     * 只有主手用这个比例：它走原版攻速条（0~1 连续值）。手动点击传 {@link #MAIN_CLICK_MIN_SCALE}
+     * （九成即可），自动攻击传 {@link #MAIN_AUTO_MIN_SCALE}（必须满）。
+     * 副手走独立物品冷却，只有"就绪/未就绪"两态、没有百分比，{@code minScale} 对它无效。
+     */
+    public static boolean isCooldownReady(Player player, InteractionHand hand, ItemStack weapon, float minScale) {
         if (hand == InteractionHand.MAIN_HAND) {
-            return player.getAttackStrengthScale(0f) >= 1.0f;
+            return player.getAttackStrengthScale(0f) >= minScale;
+        }
+        return isOffhandReady(player);
+    }
+
+    /**
+     * 服务端主手冷却的额外容忍 tick 数——**实测错位 2 tick，再加 1 tick 保险**。
+     * <p>
+     * 2 来自一次实测：客户端算出 {@code scale=1.0}（认为就绪）时，服务端同一刻算出
+     * {@code scale=0.945}（{@code 18/19.0476}），即服务端稳定落后约 2 tick。
+     * <p>
+     * 为什么不正好取 2：最初取 1 时门槛落在 {@code 19/19.0476 = 0.9975}，**差 0.0025 没够**，
+     * 第一下照样被丢弃；改成正好等于错位量又会坐在边界上，浮点末位或网络抖动一变就复发。
+     * 多留 1 tick 让服务端门槛明显低于客户端，不再贴边。
+     */
+    private static final float SERVER_COOLDOWN_TOLERANCE_TICKS = 3.0f;
+
+    /**
+     * 服务端主手冷却判定——门槛同客户端的**手动**档（{@link #MAIN_CLICK_MIN_SCALE}），
+     * 再宽 {@link #SERVER_COOLDOWN_TOLERANCE_TICKS} tick。
+     * <p>
+     * 两边对同一个武器算出不同的 {@code scale}，是因为客户端的 {@code attackStrengthTicker} 与服务端
+     * 存在固定相位差：客户端复位（攻击后、或换武器时的装备变更检测）是本地的、立刻生效，服务端要等
+     * 对应的包到达、在它自己的 tick 里处理才算数。**换武器时最明显**——那一刻两边的 ticker 同时归零，
+     * 但服务端的归零晚了一两拍，于是客户端先到满格、它的第一次出手正好落在服务端还没就绪的窗口里。
+     * <p>
+     * 两边不一致时，客户端那一格就白挥了——而且客户端并不知道被拒，它会照常复位自己的攻速条，
+     * 于是要等满一个冷却才能再试，玩家实实在在丢掉一次攻击。
+     * <p>
+     * 门槛取**手动档**（九成）而非自动档（满）是因为包本身不带"这次是点击还是自动"的信息，
+     * 服务端只能按较宽的那一档收；自动档由客户端把关，服务端这只是防刷下限。
+     * 副手走独立物品冷却且由服务端下发，客户端只会**偏保守**（收到冷却包比服务端施加晚），无需余量。
+     */
+    public static boolean isServerCooldownReady(Player player, InteractionHand hand, ItemStack weapon) {
+        if (hand == InteractionHand.MAIN_HAND) {
+            return player.getAttackStrengthScale(SERVER_COOLDOWN_TOLERANCE_TICKS) >= MAIN_CLICK_MIN_SCALE;
         }
         return isOffhandReady(player);
     }

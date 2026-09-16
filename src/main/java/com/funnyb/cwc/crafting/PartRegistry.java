@@ -35,6 +35,7 @@ public final class PartRegistry {
             if (def != null) types.put(def.id(), def);
         }
         ColdWeaponCraftsmanship.LOGGER.info("Loaded {} part types", types.size());
+        warnOnTypeCycles();
 
         // 零件：key = "ns:first_folder/type_name/part_name" → id = "first_folder.type_name.part_name"
         Map<String, ResourceLocation> partFiles = scan(rm, "parts", ".json");
@@ -60,6 +61,80 @@ public final class PartRegistry {
     }
 
     // --- 内部 ---
+
+    /**
+     * 类型图环检测——**仅记 ERROR，不阻止加载**。
+     * <p>
+     * 属性聚合（{@link WeaponStats}）与渲染都沿装配树递归，类型图上出现环意味着"理论上"可以
+     * 无限嵌套。但递归遍历的是**物品树**而非类型图——玩家仍须逐级手工装配，深度实际由人力封顶，
+     * 不构成崩溃风险。所以这条是**给数据作者的诊断**：发现问题只报，数据照常注册。
+     */
+    private static void warnOnTypeCycles() {
+        // 建图：类型 → 它的槽位能接受的类型集合（按与装配界面相同的约束匹配规则）
+        Map<String, Set<String>> edges = new LinkedHashMap<>();
+        for (PartTypeDef from : types.values()) {
+            Set<String> accepted = new LinkedHashSet<>();
+            for (PartTypeDef candidate : types.values()) {
+                for (PartTypeDef.SlotDef slot : from.slots()) {
+                    if (slotAccepts(slot, candidate)) {
+                        accepted.add(candidate.id());
+                        break;
+                    }
+                }
+            }
+            edges.put(from.id(), accepted);
+        }
+
+        Set<String> done = new HashSet<>();
+        Set<String> onStack = new HashSet<>();
+        Deque<String> path = new ArrayDeque<>();
+        for (String id : edges.keySet()) {
+            findCycle(id, edges, done, onStack, path);
+        }
+    }
+
+    /** 深度优先找环；发现回边就打印完整环路径 */
+    private static void findCycle(String node, Map<String, Set<String>> edges, Set<String> done,
+                                  Set<String> onStack, Deque<String> path) {
+        if (done.contains(node)) return;
+        if (onStack.contains(node)) {
+            List<String> cycle = new ArrayList<>();
+            boolean started = false;
+            for (String s : path) {          // ArrayDeque 迭代顺序 = 入栈顺序
+                if (s.equals(node)) started = true;
+                if (started) cycle.add(s);
+            }
+            cycle.add(node);
+            ColdWeaponCraftsmanship.LOGGER.error(
+                    "类型图存在环，装配可无限嵌套：{}（仅提示，不阻止加载）", String.join(" -> ", cycle));
+            return;
+        }
+        onStack.add(node);
+        path.addLast(node);
+        for (String next : edges.getOrDefault(node, Set.of())) {
+            findCycle(next, edges, done, onStack, path);
+        }
+        path.removeLast();
+        onStack.remove(node);
+        done.add(node);
+    }
+
+    /**
+     * 槽位约束能否被该类型满足——与 {@code AssemblingMenu.matchesConstraint} 同规则：
+     * 约束为空 = 全收；约束键在候选类型 data 中缺失或不匹配即拒绝。
+     * 注意匹配的是类型的**语义值**（如 data.type = "attack"/"guard"），不是类型 id。
+     */
+    private static boolean slotAccepts(PartTypeDef.SlotDef slot, PartTypeDef candidate) {
+        Map<String, List<String>> constraint = slot.constraint();
+        if (constraint == null || constraint.isEmpty()) return true;
+        for (Map.Entry<String, List<String>> entry : constraint.entrySet()) {
+            List<String> allowed = entry.getValue();
+            if (allowed == null) continue;
+            String value = candidate.data().get(entry.getKey());
+            if (value == null || !allowed.contains(value)) return false;
+        }
+        return true;
+    }
 
     private static Map<String, ResourceLocation> scan(ResourceManager rm, String basePath, String suffix) {
         Map<String, ResourceLocation> result = new LinkedHashMap<>();

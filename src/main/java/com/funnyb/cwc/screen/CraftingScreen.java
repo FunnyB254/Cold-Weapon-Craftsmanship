@@ -1,6 +1,6 @@
 package com.funnyb.cwc.screen;
 
-import com.funnyb.cwc.client.Layouts;
+import com.funnyb.cwc.layout.Layouts;
 import com.funnyb.cwc.crafting.PartDef;
 import com.funnyb.cwc.crafting.PartRegistry;
 import com.funnyb.cwc.crafting.PartStacks;
@@ -42,8 +42,6 @@ public class CraftingScreen extends BaseInventoryScreen<CraftingMenu> {
     private ImageButton cycleButton;
     /** 帮助按钮 */
     private ImageButton helpButton;
-    /** 返回按钮 */
-    private ImageButton backButton;
 
     public CraftingScreen(CraftingMenu menu, Inventory playerInventory, Component title) {
         super(menu, playerInventory, title, menu.inventoryLayout);
@@ -60,18 +58,12 @@ public class CraftingScreen extends BaseInventoryScreen<CraftingMenu> {
         var cb = Layouts.craftingScreen().cycle_button;
         cycleButton = this.addRenderableWidget(new ImageButton(
                 this.leftPos + cb.x_offset, this.topPos + cb.y_offset,
-                cb.width, cb.height,
+                cb.width, cb.height, GuiIcons.CYCLE,
                 () -> PacketDistributor.sendToServer(new CycleRecipePacket())));
 
         // 帮助按钮——暂留空
         helpButton = this.addRenderableWidget(new ImageButton(
-                this.leftPos + 212, this.topPos + 7, 16, 16, () -> {}));
-
-        // 返回按钮——回到选择界面
-        backButton = this.addRenderableWidget(new ImageButton(
-                this.leftPos + 230, this.topPos + 7, 16, 16,
-                () -> net.minecraft.client.Minecraft.getInstance()
-                        .setScreen(new CreativePartStarScreen())));
+                this.leftPos + 212, this.topPos + 13, 16, 16, GuiIcons.HELP, () -> {}));
 
         // 零件列表——从 PartRegistry 自动填充
         partGrid.setItems(createPartStacks());
@@ -92,9 +84,12 @@ public class CraftingScreen extends BaseInventoryScreen<CraftingMenu> {
     @Override
     protected void renderLabels(GuiGraphics guiGraphics, int mouseX, int mouseY) {
         var lay = Layouts.craftingScreen();
-        guiGraphics.drawCenteredString(this.font,
-                Component.translatable("screen.coldweaponcraftsmanship.craft_parts"),
-                lay.title_x, lay.title_y, lay.title_color);
+        // 居中绘制且【关闭阴影】：drawCenteredString 内部强制 dropShadow=true，
+        // 会在 (+1,+1) 处用暗色重画一遍，在浅色面板上表现为重影。
+        // 原版 AbstractContainerScreen.renderLabels 画标题同样传 false。
+        Component title = Component.translatable("screen.coldweaponcraftsmanship.craft_parts");
+        guiGraphics.drawString(this.font, title,
+                lay.title_x - this.font.width(title) / 2, lay.title_y, lay.title_color, false);
     }
 
     // ──── 鼠标事件 ────
@@ -130,7 +125,7 @@ public class CraftingScreen extends BaseInventoryScreen<CraftingMenu> {
     @Override
     protected void renderBg(GuiGraphics guiGraphics, float partialTick, int mouseX, int mouseY) {
         super.renderBg(guiGraphics, partialTick, mouseX, mouseY);
-        materialGrid.setPosition(this.leftPos + 47, this.topPos + 8);
+        materialGrid.setPosition(this.leftPos + 47, this.topPos + 14);
         materialGrid.render(guiGraphics, mouseX, mouseY);
 
         var gridLayout = Layouts.craftingScreen().part_grid;
@@ -143,13 +138,10 @@ public class CraftingScreen extends BaseInventoryScreen<CraftingMenu> {
         // super.render() 内顺序：renderBg(背景+grid) → widgets → slots → tooltip
         super.render(guiGraphics, mouseX, mouseY, partialTick);
 
-        // 自定义 tooltip（优先级：帮助/返回 > 切换按钮 > grid）覆盖在最上层
+        // 自定义 tooltip（优先级：帮助 > 切换按钮 > grid）覆盖在最上层
         if (helpButton.isHovered()) {
             guiGraphics.renderComponentTooltip(this.font,
                     List.of(Component.translatable("tooltip.cwc.help")), mouseX, mouseY);
-        } else if (backButton.isHovered()) {
-            guiGraphics.renderComponentTooltip(this.font,
-                    List.of(Component.translatable("tooltip.cwc.back")), mouseX, mouseY);
         } else if (cycleButton.isHovered()) {
             guiGraphics.renderComponentTooltip(this.font, buildRecipeTooltip(), mouseX, mouseY);
         } else {
