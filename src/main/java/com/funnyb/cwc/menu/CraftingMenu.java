@@ -2,18 +2,20 @@ package com.funnyb.cwc.menu;
 
 import com.funnyb.cwc.layout.Layouts;
 import com.funnyb.cwc.crafting.IngredientDef;
-import com.funnyb.cwc.crafting.PartDef;
 import com.funnyb.cwc.crafting.PartRecipes;
 import com.funnyb.cwc.crafting.PartRegistry;
+import com.funnyb.cwc.crafting.PartStacks;
 import com.funnyb.cwc.registry.CwcMenuTypes;
 
-import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ContainerLevelAccess;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.Block;
 
 import java.util.List;
 
@@ -32,13 +34,19 @@ public class CraftingMenu extends AbstractContainerMenu {
     private String currentPartId;
     private int currentRecipeIndex = 0;
 
-    public CraftingMenu(int containerId, Inventory playerInventory, FriendlyByteBuf extraData) {
-        this(containerId, playerInventory);
-    }
+    /** 打开本界面的方块坐标——{@code stillValid} 用它判断玩家是否走远 */
+    private final BlockPos tablePos;
+    /** 打开时的方块类型——被换成别的方块就关界面 */
+    private final Block openBlock;
 
-    public CraftingMenu(int containerId, Inventory playerInventory) {
+    /**
+     * @param tablePos 打开界面的方块坐标，由服务端经 {@code openMenu(provider, pos)} 写进包里传来
+     */
+    public CraftingMenu(int containerId, Inventory playerInventory, BlockPos tablePos) {
         super(CwcMenuTypes.CRAFTING.get(), containerId);
         this.playerInventory = playerInventory;
+        this.tablePos = tablePos;
+        this.openBlock = playerInventory.player.level().getBlockState(tablePos).getBlock();
 
         var layout = Layouts.craftingMenu();
         this.inventoryLayout = new InventoryLayout(
@@ -90,10 +98,9 @@ public class CraftingMenu extends AbstractContainerMenu {
         }
 
         if (PartRecipes.canCraft(playerInventory.player, ingredients)) {
-            var item = def.typeId().contains("handle")
-                    ? com.funnyb.cwc.registry.CwcItems.HANDLE_PART.get()
-                    : com.funnyb.cwc.registry.CwcItems.PART.get();
-            craftContainer.setItem(3, PartRecipes.createPartStack(item, currentPartId));
+            // 承载物品（HANDLE_PART / PART）由 PartStacks.itemFor 按类型 role() 统一推导，
+            // 不在这里用 id 字符串判定（旧实现是 typeId().contains("handle")，与 WeaponStats 判据不同源）
+            craftContainer.setItem(3, PartStacks.partIcon(currentPartId));
         } else {
             craftContainer.setItem(3, ItemStack.EMPTY);
         }
@@ -141,9 +148,17 @@ public class CraftingMenu extends AbstractContainerMenu {
         return ItemStack.EMPTY;
     }
 
+    /**
+     * 玩家走远或方块被拆后自动关闭界面——与原版工作台同一套
+     * （原版 {@code CraftingMenu} 用的是 {@code stillValid(access, player, Blocks.CRAFTING_TABLE)}）。
+     * <p>
+     * 此前恒返回 true，于是界面永不自动关闭、服务端一直持有菜单状态直到玩家自己按 E。
+     * 这里复用原版的静态判定：方块仍是打开时那个 + {@code player.canInteractWithBlock(pos, 4.0)}
+     * （按交互距离属性算，不是写死的 64）。
+     */
     @Override
     public boolean stillValid(Player player) {
-        return true;
+        return stillValid(ContainerLevelAccess.create(player.level(), tablePos), player, openBlock);
     }
 
     // removed() 不覆写：关闭界面不额外掉落，走普通容器行为

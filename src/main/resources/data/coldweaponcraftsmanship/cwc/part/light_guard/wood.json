@@ -1,0 +1,22 @@
+{
+  "parser": "cwc:default",
+  "type": "coldweaponcraftsmanship:light_guard",
+  "data": {
+    "weight": "light",
+    "block": 0.25,
+    "damage": 1,
+    "speed": -0.1
+  },
+  "recipes": [
+    {
+      "ingredients": [
+        {},
+        {
+          "item": "minecraft:stick",
+          "count": 1
+        },
+        {}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "parser": "cwc:metal",
+  "type": "coldweaponcraftsmanship:short_blade",
+  "data": {
+    "damage": {
+      "base": 1.0,
+      "hardnessMultiplier": 0.5,
+      "toughnessMultiplier": 0
+    },
+    "speed": {
+      "base": 1.0,
+      "hardnessMultiplier": 0,
+      "toughnessMultiplier": 0
+    },
+    "durability": {
+      "base": 25,
+      "hardnessMultiplier": 5,
+      "toughnessMultiplier": 2
+    }
+  },
+  "recipes": [
+    {
+      "ingredients": [
+        {},
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 1
+        },
+        {}
+      ]
+    }
+  ]
+}

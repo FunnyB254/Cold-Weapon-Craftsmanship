@@ -1,0 +1,21 @@
+{
+  "parser": "cwc:default",
+  "type": "coldweaponcraftsmanship:light_pommel",
+  "data": {
+    "damage": 0,
+    "speed": 0.1,
+    "durability": 9
+  },
+  "recipes": [
+    {
+      "ingredients": [
+        {},
+        {
+          "item": "minecraft:cobblestone",
+          "count": 1
+        },
+        {}
+      ]
+    }
+  ]
+}

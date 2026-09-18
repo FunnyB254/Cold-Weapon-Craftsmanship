@@ -34,8 +34,15 @@ bin/
 
 ### Minecraft Modding ###
 run/
+# 服务端的独立游戏目录（runServer 用，见 build.gradle 的 runs.server.gameDirectory）：
+# 里面是世界存档、server.properties（含 rcon 密码）、日志和第三方 mod 的 jar，都不该进仓库。
+run-server/
+logs/
 libs/
 !**/src/**/run/
 **/src/generated/**/.cache/
 repo/
 !**/src/**/repo/
+
+### 会话临时文件（测试待办、跨会话交接）
+tmp/

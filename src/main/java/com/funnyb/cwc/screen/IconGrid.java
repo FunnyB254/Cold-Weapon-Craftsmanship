@@ -9,6 +9,7 @@ import net.minecraft.world.item.ItemStack;
 
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 /**
  * 可滚动图标网格——用于制造界面右侧的零件列表。
@@ -50,7 +51,7 @@ public class IconGrid {
     /** 当前选中物品的索引，-1 表示未选中 */
     private int selectedIndex = -1;
     /** 选择变更回调 */
-    private java.util.function.Consumer<ItemStack> onSelectionChanged;
+    private Consumer<ItemStack> onSelectionChanged;
 
     public IconGrid(String name, int x, int y, int width, int height) {
         this.name = name;
@@ -73,8 +74,27 @@ public class IconGrid {
         this.selectedIndex = -1;
     }
 
-    public void onSelectionChanged(java.util.function.Consumer<ItemStack> callback) {
+    public void onSelectionChanged(Consumer<ItemStack> callback) {
         this.onSelectionChanged = callback;
+    }
+
+    /**
+     * 按条件选中一格，且**不触发** {@link #onSelectionChanged}——供界面重建后恢复高亮。
+     * <p>
+     * 重建时（缩放窗口、切全屏）服务端状态并没有变，重新走回调会多发一次选择包，
+     * 反而把服务端的当前配方打回起点，所以这里只改本地的选中索引。
+     *
+     * @return 是否命中；未命中时选中态被清空（-1）
+     */
+    public boolean selectWithoutNotify(Predicate<ItemStack> match) {
+        selectedIndex = -1;
+        for (int i = 0; i < items.size(); i++) {
+            if (match.test(items.get(i))) {
+                selectedIndex = i;
+                return true;
+            }
+        }
+        return false;
     }
 
     /** @return 当前选中的物品，未选中时返回 EMPTY */

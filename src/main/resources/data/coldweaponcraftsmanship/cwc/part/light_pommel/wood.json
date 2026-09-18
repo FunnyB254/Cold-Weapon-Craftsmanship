@@ -1,0 +1,21 @@
+{
+  "parser": "cwc:default",
+  "type": "coldweaponcraftsmanship:light_pommel",
+  "data": {
+    "damage": 0,
+    "speed": 0.1,
+    "durability": 8
+  },
+  "recipes": [
+    {
+      "ingredients": [
+        {},
+        {
+          "item": "minecraft:stick",
+          "count": 1
+        },
+        {}
+      ]
+    }
+  ]
+}

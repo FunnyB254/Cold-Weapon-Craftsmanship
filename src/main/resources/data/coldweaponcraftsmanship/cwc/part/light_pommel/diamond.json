@@ -1,0 +1,21 @@
+{
+  "parser": "cwc:default",
+  "type": "coldweaponcraftsmanship:light_pommel",
+  "data": {
+    "damage": 0,
+    "speed": 0.1,
+    "durability": 15
+  },
+  "recipes": [
+    {
+      "ingredients": [
+        {},
+        {
+          "item": "minecraft:diamond",
+          "count": 1
+        },
+        {}
+      ]
+    }
+  ]
+}

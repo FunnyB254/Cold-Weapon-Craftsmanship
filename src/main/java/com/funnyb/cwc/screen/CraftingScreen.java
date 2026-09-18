@@ -17,6 +17,7 @@ import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 
 /**
@@ -42,6 +43,11 @@ public class CraftingScreen extends BaseInventoryScreen<CraftingMenu> {
     private ImageButton cycleButton;
     /** 帮助按钮 */
     private ImageButton helpButton;
+
+    /** 当前选中的零件类型 id——界面重建后用来恢复两侧列表的高亮 */
+    private String selectedTypeId;
+    /** 当前选中的材质（零件 id）——同上；换类型时清空，因为旧材质已不在新列表里 */
+    private String selectedPartId;
 
     public CraftingScreen(CraftingMenu menu, Inventory playerInventory, Component title) {
         super(menu, playerInventory, title, menu.inventoryLayout);
@@ -70,15 +76,38 @@ public class CraftingScreen extends BaseInventoryScreen<CraftingMenu> {
         partGrid.onSelectionChanged(sel -> {
             String typeId = sel.get(CwcDataComponents.PART_IDENTITY.get());
             if (typeId != null) {
+                selectedTypeId = typeId;
+                selectedPartId = null;      // 换了类型，旧材质已不在新列表里
                 materialGrid.setItems(getMaterialVariants(typeId));
             }
         });
         materialGrid.onSelectionChanged(sel -> {
             String partId = sel.get(CwcDataComponents.PART_IDENTITY.get());
             if (partId != null) {
+                selectedPartId = partId;
                 PacketDistributor.sendToServer(new SelectPartPacket(partId));
             }
         });
+
+        restoreSelection();
+    }
+
+    /**
+     * 界面重建（缩放窗口、切全屏都会重跑 {@code init()}）后恢复选择态。
+     * <p>
+     * {@link IconGrid#setItems} 是"换一份列表"的语义，会顺手清空选中索引，而重建时服务端的
+     * 当前配方并没有变——不恢复就会出现"输出槽里成品还在、两列却高亮全无"的脱节，玩家得重点
+     * 一次才对得上。这里按 id 重新定位，**不发包**：服务端本来就是对的。
+     */
+    private void restoreSelection() {
+        if (selectedTypeId == null) return;
+        materialGrid.setItems(getMaterialVariants(selectedTypeId));
+        partGrid.selectWithoutNotify(
+                s -> selectedTypeId.equals(s.get(CwcDataComponents.PART_IDENTITY.get())));
+        if (selectedPartId != null) {
+            materialGrid.selectWithoutNotify(
+                    s -> selectedPartId.equals(s.get(CwcDataComponents.PART_IDENTITY.get())));
+        }
     }
 
     @Override
@@ -180,24 +209,30 @@ public class CraftingScreen extends BaseInventoryScreen<CraftingMenu> {
         return List.of(Component.translatable("tooltip.coldweaponcraftsmanship.cycle_recipe"));
     }
 
-    /** 从 PartRegistry 创建零件类型列表——每种类型去重只留一个（图标用代表材质） */
+    /**
+     * 零件类型列表——按零件的 **{@code type} 字段**去重（零件定义里没有 id，类型是它自己的字段）。
+     * 顺序由 {@code partMap()} 保证（按 id 排序），所以列表不会每次刷新都换序。
+     */
     private List<ItemStack> createPartStacks() {
-        var seen = new java.util.HashSet<String>();
+        var seen = new HashSet<String>();
         List<ItemStack> stacks = new ArrayList<>();
-        for (PartDef def : PartRegistry.getAllParts()) {
-            if (seen.add(def.typeId())) {
-                stacks.add(PartStacks.typeIcon(def.typeId()));
+        for (PartDef def : PartRegistry.partMap().values()) {
+            String typeId = def.type().toString();
+            if (seen.add(typeId)) {
+                stacks.add(PartStacks.typeIcon(typeId));
             }
         }
         return stacks;
     }
 
-    /** 选中零件类型后，列出该类型下所有材料变体 */
+    /** 选中零件类型后，列出该类型下所有材料变体——建图标需要 id，所以遍历 id→定义 */
     private List<ItemStack> getMaterialVariants(String typeId) {
         List<ItemStack> variants = new ArrayList<>();
-        for (PartDef def : PartRegistry.getPartsByType(typeId)) {
-            variants.add(PartStacks.partIcon(def.id()));
-        }
+        PartRegistry.partMap().forEach((id, def) -> {
+            if (def.type().toString().equals(typeId)) {
+                variants.add(PartStacks.partIcon(id.toString()));
+            }
+        });
         return variants;
     }
 }

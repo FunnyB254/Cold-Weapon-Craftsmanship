@@ -1,6 +1,8 @@
 package com.funnyb.cwc.registry;
 
 import com.funnyb.cwc.ColdWeaponCraftsmanship;
+import com.funnyb.cwc.crafting.PartRegistry;
+import com.funnyb.cwc.crafting.PartStacks;
 
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
@@ -29,9 +31,17 @@ public class CwcCreativeTabs {
                     .displayItems((params, output) -> {
                         output.accept(CwcItems.PART_CRAFTING_TABLE_ITEM.get());
                         output.accept(CwcItems.ASSEMBLY_TABLE_ITEM.get());
-                        // 零件与手柄没有原版配方（只能靠制造台现造），放进创造栏方便测试
-                        output.accept(CwcItems.PART.get());
-                        output.accept(CwcItems.HANDLE_PART.get());
+                        // 零件与手柄没有原版配方（只能靠制造台现造），放进创造栏方便测试。
+                        // 必须逐个给出**带 PART_IDENTITY 的具体零件**——旧实现是直接
+                        // accept(PART.get()) / accept(HANDLE_PART.get())，那两件连身份都没有：
+                        // 渲染不出任何东西，也不能当装配底座用（BUG-017）。
+                        // 承载物品（HANDLE_PART / PART）由 PartStacks.itemFor 按类型推导，不在这里判定。
+                        //
+                        // 注意：零件表由服务端在 ServerStartingEvent 填充，而本回调在客户端跑。
+                        // 单人（集成服务器）两端共用同一份静态注册表所以正常；专用服务器上客户端这份
+                        // 是空的，那种场景下这里只会出现两个工作方块（已知限制，属多人架构问题）。
+                        // 零件定义里没有 id 字段（id 是注册表键），所以遍历 id→定义；partMap() 已按 id 排序
+                        PartRegistry.partMap().forEach((id, def) -> output.accept(PartStacks.partIcon(id.toString())));
                     })
                     .build());
 

@@ -1,6 +1,5 @@
 package com.funnyb.cwc.crafting;
 
-import com.funnyb.cwc.registry.CwcDataComponents;
 import com.funnyb.cwc.registry.CwcItems;
 
 import net.minecraft.core.component.DataComponents;
@@ -8,30 +7,46 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.EquipmentSlotGroup;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.ItemAttributeModifiers;
 
-import java.util.Map;
-
 /**
- * 武器属性聚合——沿 ASSEMBLED_SLOTS **递归遍历整棵装配树**，把每个节点自身的属性
- * 按"它所在槽位"的权重加权累加，写入底座武器的 ATTRIBUTE_MODIFIERS（攻击伤害/攻击速度）
- * 与 MAX_DAMAGE（耐久），并聚合格挡减伤 BLOCK_VALUE。
+ * 武器属性——**从装配树按需推导**，并把少数无法推导的量同步到组件上。
  * <p>
- * 递归是必须的：渲染器 {@code AssembledWeaponRenderer.collectChildren} 本来就递归任意深度，
- * 若聚合只看顶层，"刃装镡"这类子装配体再插进手柄时，镡会被画出来但数值完全不生效
- * （看得见却不生效）。根节点自身也计入，权重固定 1.0 —— 底座没有"所在槽位"。
+ * 2026-09-17 起属性不再物化：原先 {@code apply} 会把 {@code ATTRIBUTE_MODIFIERS}（伤害/攻速/击退/交互距离）
+ * 写进物品栈，于是"属性 = 有没有经过装配台"——创造栏、{@code /give}、其他模组、旧存档产出的武器全是 0 且不报错；
+ * 更要紧的是原版属性系统**无条件读取主手物品的 {@code ATTRIBUTE_MODIFIERS}，不检查它是不是武器**，
+ * 这就是 BUG-005（裸刃打人）的根。改为推导后这条路径从结构上不存在了。
+ * <p>
+ * 现在物化量只剩一个：<b>耐久上限</b>。它没法按需——{@code ItemStack.getMaxDamage()} 只读组件，
+ * {@code Item} 拦不住。格挡减伤也改为受击时现算（见 {@code CwcCombatEvents.onHurt}）。
+ * <p>
+ * 承载方式由 {@code CwcWeapon.getDefaultAttributeModifiers(ItemStack)} 调用 {@link #deriveModifiers}——
+ * NeoForge 的 {@code ItemStack.getAttributeModifiers()} 在组件为空时正好回落到这个重载，无需自己写分发。
  */
 public final class WeaponStats {
 
     /** 攻击速度基础 modifier（与原版剑一致，实际攻速 = 4 + modifier） */
     private static final double BASE_ATTACK_SPEED = -2.4;
 
-    /** modifier 稳定 id——同一 id 重算时整体替换，避免叠加 */
-    private static final ResourceLocation DMG_ID =
-            ResourceLocation.fromNamespaceAndPath("coldweaponcraftsmanship", "assembled_damage");
-    private static final ResourceLocation SPD_ID =
-            ResourceLocation.fromNamespaceAndPath("coldweaponcraftsmanship", "assembled_speed");
+    /**
+     * modifier 稳定 id——同一 id 在属性表里整体替换，避免叠加。
+     * <p>
+     * 伤害与攻速**刻意复用原版的 {@link Item#BASE_ATTACK_DAMAGE_ID} 与 {@link Item#BASE_ATTACK_SPEED_ID}**：
+     * 原版 tooltip 对这两个 id 有特判（见 {@code ItemStack.addModifierTooltip}）——它会**把玩家基础值加进来
+     * 显示"总值"**、不带正负号、用深绿字，与拿在手里的原版武器观感一致。
+     * <p>
+     * 用自定义 id 则会落到通用分支：显示**增量**并按正负染色，于是出现
+     * "＋3 伤害（蓝）/ −2.4 攻速（红）"这种看起来像"惩罚"的显示（负的攻速增量尤其吓人，
+     * 而它其实只是"比空手慢"的意思）。
+     * <p>
+     * **这只是显示层的差别**：数值、运算方式、生效逻辑一概不变。
+     * （特判要求 tooltip 带玩家上下文；没有玩家时会回落成增量形式，属正常。）
+     */
+    private static final ResourceLocation DMG_ID = Item.BASE_ATTACK_DAMAGE_ID;
+    private static final ResourceLocation SPD_ID = Item.BASE_ATTACK_SPEED_ID;
+    /** 击退与交互距离**没有原版对应 id**，保持自定义——它们本就该按"额外加成"显示 */
     private static final ResourceLocation KB_ID =
             ResourceLocation.fromNamespaceAndPath("coldweaponcraftsmanship", "assembled_knockback");
     private static final ResourceLocation REACH_ID =
@@ -39,152 +54,75 @@ public final class WeaponStats {
 
     private WeaponStats() {}
 
-    /** 一趟遍历同时收集的全部聚合量 */
-    private static final class Accumulator {
-        double damage;
-        double speed;
-        double durability;
-        double block;
-        double reach;
-        double knockback;
-        /** reach/knockback 只取遇到的第一个 attack 型节点，取到后不再覆盖 */
-        boolean attackFound;
-    }
-
     /**
-     * 按底座武器的整棵装配树重算属性并写入组件（幂等）。
-     * 未装配任何零件时移除属性组件，回落物品默认属性——即"属性只在装配后产生"。
+     * 按装配树现算主手属性 modifier——**不落组件**。
      * <p>
-     * **只有底座是 {@link CwcItems#HANDLE_PART} 时才写入**。属性组件一旦写上去，原版属性系统就会
-     * 把它无条件计入"手持该物品"的玩家属性——它不检查这物品是不是武器。而装配台底座槽接受任意
-     * 零件（为了拼"刃+镡"这类子装配体），若照写，这把刃拿到主手左键时就会经原版
-     * {@code Player.attack} 打出武器伤害（{@code CwcCombatEvents.onAttack} 只拦 HANDLE_PART，
-     * 非底座一律放行原版）。
+     * 未装任何零件时返回 {@link ItemAttributeModifiers#EMPTY}，回落物品默认属性——即"属性只在装配后产生"，
+     * 与旧的"无零件则清空组件"语义一致。
      * <p>
-     * 不写入**不影响最终数值**：递归聚合读的是 {@link PartRegistry} 里的 {@link PartDef#data()}，
-     * 与物品栈上有没有属性组件无关——子装配体插进手柄后该贡献的一分不少。
+     * <b>不加缓存。</b>装配树最多几个节点，而这个方法的调用点只有三处：装备变更（属性表重建）、
+     * 伤害结算、tooltip 渲染。tooltip 虽然是每帧重建，代价也就是几十次 map 查找。
      */
-    public static void apply(ItemStack base) {
-        if (base.isEmpty()) return;
-        PartDef baseDef = defOf(base);
-        if (baseDef == null) return;   // 非本模组零件：完全不碰
-
-        // 不是手柄底座（子装配体/裸零件）→ 清掉可能残留的属性，绝不写入
-        if (base.getItem() != CwcItems.HANDLE_PART.get()) {
-            clearStats(base);
-            return;
-        }
-
-        Map<String, ItemStack> assembled = base.get(CwcDataComponents.ASSEMBLED_SLOTS.get());
-        if (assembled == null || assembled.isEmpty()) {
-            clearStats(base);
-            return;
-        }
-
-        Accumulator acc = new Accumulator();
-        accumulate(base, null, acc);   // 根节点无父槽位，权重 1.0
+    public static ItemAttributeModifiers deriveModifiers(ItemStack stack) {
+        AssemblyTree tree = AssemblyTree.of(stack);
+        if (!tree.hasParts()) return ItemAttributeModifiers.EMPTY;
 
         var builder = ItemAttributeModifiers.builder()
                 .add(Attributes.ATTACK_DAMAGE,
-                        new AttributeModifier(DMG_ID, acc.damage, AttributeModifier.Operation.ADD_VALUE),
+                        new AttributeModifier(DMG_ID, tree.damage(), AttributeModifier.Operation.ADD_VALUE),
                         EquipmentSlotGroup.MAINHAND)
                 .add(Attributes.ATTACK_SPEED,
-                        new AttributeModifier(SPD_ID, BASE_ATTACK_SPEED + acc.speed, AttributeModifier.Operation.ADD_VALUE),
+                        new AttributeModifier(SPD_ID, BASE_ATTACK_SPEED + tree.speed(), AttributeModifier.Operation.ADD_VALUE),
                         EquipmentSlotGroup.MAINHAND);
         // 加成非 0 才写入，避免无刃/平衡刃武器带多余 modifier
-        if (acc.knockback != 0) {
+        if (tree.knockback() != 0.0) {
             builder.add(Attributes.ATTACK_KNOCKBACK,
-                    new AttributeModifier(KB_ID, acc.knockback, AttributeModifier.Operation.ADD_VALUE),
+                    new AttributeModifier(KB_ID, tree.knockback(), AttributeModifier.Operation.ADD_VALUE),
                     EquipmentSlotGroup.MAINHAND);
         }
-        if (acc.reach != 0) {
+        if (tree.reach() != 0.0) {
             builder.add(Attributes.ENTITY_INTERACTION_RANGE,
-                    new AttributeModifier(REACH_ID, acc.reach, AttributeModifier.Operation.ADD_VALUE),
+                    new AttributeModifier(REACH_ID, tree.reach(), AttributeModifier.Operation.ADD_VALUE),
                     EquipmentSlotGroup.MAINHAND);
         }
-        base.set(DataComponents.ATTRIBUTE_MODIFIERS, builder.build());
-
-        base.set(CwcDataComponents.BLOCK_VALUE.get(), (float) acc.block);
-
-        if (acc.durability > 0) {
-            base.set(DataComponents.MAX_DAMAGE, (int) Math.max(1, Math.round(acc.durability)));
-        } else {
-            base.remove(DataComponents.MAX_DAMAGE);
-        }
+        return builder.build();
     }
 
     /**
-     * 移除本模组写入的全部属性组件——非手柄底座的物品不该带任何武器属性。
-     * 组件不存在时 {@code remove} 是空操作，可安全重复调用。
+     * 把耐久上限同步到组件——**这是全项目唯一的物化写入**，幂等，可安全重复调用。
+     * <p>
+     * <b>为什么只有耐久还物化：</b>属性已经彻底改成按需推导（{@link #deriveModifiers}），但耐久推导不了
+     * ——{@code ItemStack.getMaxDamage()} 只读组件、{@code Item} 拦不住。而原先它的唯一写点是装配台，
+     * 于是"非装配台路径产出的武器没有耐久"（不可损坏、无耐久条、{@code hurtAndBreak} 空转）。
+     * 现在由 {@code CwcWeapon.inventoryTick} 每 tick 巡检自愈补上这一半。
+     * <p>
+     * <b>值相等时不碰组件</b>，所以每 tick 调用也不会产生无谓的同步。
+     * <p>
+     * 非手柄底座（子装配体 / 裸零件）直接返回：只有 {@link CwcItems#HANDLE_PART} 是武器。
+     * 这也正是 BUG-005（裸刃打人）为何从结构上不再可能——属性不再落组件，就没有"某个零件身上带着
+     * 武器属性、被原版属性系统无条件读走"这条路了，不再需要"清掉残留组件"的补丁。
      */
-    private static void clearStats(ItemStack stack) {
-        stack.remove(DataComponents.ATTRIBUTE_MODIFIERS);
-        stack.remove(DataComponents.MAX_DAMAGE);
-        stack.remove(CwcDataComponents.BLOCK_VALUE.get());
-    }
+    public static void syncDurability(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return;
+        if (stack.getItem() != CwcItems.HANDLE_PART.get()) return;
 
-    /**
-     * 递归累加：先计入本节点自身属性，再按各子槽位的权重递归子件。
-     *
-     * @param slot 本节点所在的槽位定义，用于取该槽的属性权重；**根节点传 null**（权重按 1.0）
-     */
-    private static void accumulate(ItemStack node, PartTypeDef.SlotDef slot, Accumulator acc) {
-        PartDef def = defOf(node);
-        if (def == null) return;
-        PartTypeDef type = PartRegistry.getTypeDef(def.typeId());
-        if (type == null) return;
+        AssemblyTree tree = AssemblyTree.of(stack);
+        int expected = tree.hasParts() && tree.durability() > 0
+                ? Math.max(1, (int) Math.round(tree.durability()))
+                : 0;
 
-        double wDamage = weight(slot, "damage");
-        double wSpeed = weight(slot, "speed");
-        double wDurability = weight(slot, "durability");
-        acc.damage += attr(def, "damage") * wDamage;
-        acc.speed += attr(def, "speed") * wSpeed;
-        acc.durability += attr(def, "durability") * wDurability;
-
-        String partType = type.data().get("type");
-        // 格挡减伤不走槽位权重（与原实现一致，裸加）
-        if ("guard".equals(partType)) {
-            acc.block += attr(def, "block");
+        if (expected <= 0) {
+            // 未装配 / 零件完全不贡献耐久 → 不该有耐久上限
+            if (stack.has(DataComponents.MAX_DAMAGE)) stack.remove(DataComponents.MAX_DAMAGE);
+            return;
         }
-        if (!acc.attackFound && "attack".equals(partType)) {
-            acc.reach = type.combatReach();
-            acc.knockback = type.combatKnockback();
-            acc.attackFound = true;
+        if (stack.getOrDefault(DataComponents.MAX_DAMAGE, 0) == expected) return;   // 已一致：不碰组件
+
+        stack.set(DataComponents.MAX_DAMAGE, expected);
+        // 拆掉贡献耐久的零件后，已累积的损耗可能超过新的上限——夹一下。
+        // 不夹的话 getBarWidth() 会算出负宽度（它没有 clamp），耐久条渲染会出问题。
+        if (stack.getDamageValue() > expected) {
+            stack.set(DataComponents.DAMAGE, expected);
         }
-
-        Map<String, ItemStack> children = node.get(CwcDataComponents.ASSEMBLED_SLOTS.get());
-        if (children == null || children.isEmpty()) return;
-        for (Map.Entry<String, ItemStack> entry : children.entrySet()) {
-            PartTypeDef.SlotDef slotDef = findSlot(type, entry.getKey());
-            if (slotDef == null) continue;   // 槽位未在父类型中声明：孤儿条目，整支跳过
-            accumulate(entry.getValue(), slotDef, acc);
-        }
-    }
-
-    /** 槽位权重；根节点（slot == null）按 1.0 全量计入 */
-    private static double weight(PartTypeDef.SlotDef slot, String attribute) {
-        return slot == null ? 1.0 : slot.weight(attribute);
-    }
-
-    /** 读取零件 data 的属性值：数值直接用，金属公式只用 base，缺失按 0 */
-    private static double attr(PartDef def, String key) {
-        Object v = def.data().get(key);
-        if (v instanceof Number n) return n.doubleValue();
-        if (v instanceof MetalParser.Formula f) return f.base;
-        return 0.0;
-    }
-
-    /** 读某栈的零件定义，无 PART_IDENTITY 或查不到返回 null */
-    private static PartDef defOf(ItemStack stack) {
-        String id = stack.get(CwcDataComponents.PART_IDENTITY.get());
-        return id == null ? null : PartRegistry.getPartDef(id);
-    }
-
-    /** 按槽位名在类型定义中查找 SlotDef，找不到返回 null */
-    private static PartTypeDef.SlotDef findSlot(PartTypeDef typeDef, String slotName) {
-        for (PartTypeDef.SlotDef s : typeDef.slots()) {
-            if (s.name().equals(slotName)) return s;
-        }
-        return null;
     }
 }

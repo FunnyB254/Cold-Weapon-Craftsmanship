@@ -1,7 +1,6 @@
 package com.funnyb.cwc.combat;
 
 import com.funnyb.cwc.item.CwcWeapon;
-import com.funnyb.cwc.registry.CwcDataComponents;
 import com.funnyb.cwc.registry.CwcItems;
 
 import net.minecraft.server.level.ServerPlayer;
@@ -60,7 +59,9 @@ public class CwcCombatEvents {
         ItemStack stack = player.getMainHandItem();
         if (stack.getItem() != CwcItems.HANDLE_PART.get()) return;  // 只本模组武器
         if (!CwcWeapon.isTwoHandedStack(stack)) return;       // 只双手武器格挡
-        float reduction = BASE_BLOCK_REDUCTION + stack.getOrDefault(CwcDataComponents.BLOCK_VALUE.get(), 0f);
+        // 格挡加成从装配树现算，不再读 BLOCK_VALUE 组件——物化的派生量会陈旧（改装配件后不更新、
+        // 绕过装配台时干脆不存在），而这里每次受击只算一次，代价可忽略
+        float reduction = BASE_BLOCK_REDUCTION + CwcWeapon.blockBonus(stack);
         // 上下限都夹：上限 95% 防止无敌；下限 0 防止 BLOCK_VALUE 写成负数时反而放大伤害
         event.setAmount(event.getAmount() * (1 - Mth.clamp(reduction, 0f, 0.95f)));
     }

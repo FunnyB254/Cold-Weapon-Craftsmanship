@@ -7,7 +7,6 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
@@ -26,7 +25,7 @@ public final class PartRecipes {
         List<ItemStack> result = new ArrayList<>(3);
         for (int i = 0; i < 3; i++) {
             IngredientDef ing = (i < ingredients.size()) ? ingredients.get(i) : null;
-            if (ing == null) {
+            if (ing == null || ing.isNone()) {
                 result.add(ItemStack.EMPTY);
             } else {
                 result.add(ingredientToStack(ing));
@@ -37,15 +36,11 @@ public final class PartRecipes {
 
     // ingredientToStack 方法见下方 package-private 版本
 
-    /** 创建带 PART_IDENTITY、显示名和贴图路由的零件 ItemStack——委托 PartStacks 统一构建 */
-    public static ItemStack createPartStack(Item item, String identity) {
-        return PartStacks.build(item, identity, "part." + identity);
-    }
-
     public static boolean canCraft(Player player, List<IngredientDef> ingredients) {
         Inventory inv = player.getInventory();
         for (IngredientDef ing : ingredients) {
-            if (ing == null) continue;                          // JSON 里的 null 占位 = 该格无要求
+            // JSON 里的 null 占位 = 该格无要求；codec 把它统一成 IngredientDef.NONE 哨兵
+            if (ing == null || ing.isNone()) continue;
             ItemStack needed = ingredientToStack(ing);
             if (needed.isEmpty()) return false;                 // 材料解析失败 = 配方损坏，拒绝制造
             if (!hasEnough(inv, needed)) return false;
@@ -61,7 +56,7 @@ public final class PartRecipes {
     public static void consumeMaterials(Player player, List<IngredientDef> ingredients, int count) {
         Inventory inv = player.getInventory();
         for (IngredientDef ing : ingredients) {
-            if (ing == null) continue;
+            if (ing == null || ing.isNone()) continue;
             ItemStack needed = ingredientToStack(ing);
             needed.setCount(needed.getCount() * count);
             consume(inv, needed);
@@ -78,10 +73,10 @@ public final class PartRecipes {
      * {@link ResourceLocationException}，也必须在此拦下，否则会冒到数据包处理器导致玩家断连。
      */
     public static ItemStack ingredientToStack(IngredientDef ing) {
-        if (ing.item() == null) return ItemStack.EMPTY;
+        if (ing.isNone()) return ItemStack.EMPTY;
         ResourceLocation loc;
         try {
-            loc = ResourceLocation.parse(ing.item());
+            loc = ResourceLocation.parse(ing.itemId());
         } catch (ResourceLocationException e) {
             ColdWeaponCraftsmanship.LOGGER.error(
                     "Invalid item id '{}' in recipe ingredient, treating recipe as broken", ing.item());

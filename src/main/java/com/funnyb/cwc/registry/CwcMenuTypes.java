@@ -21,15 +21,20 @@ public class CwcMenuTypes {
     public static final DeferredRegister<MenuType<?>> MENU_TYPES =
             DeferredRegister.create(Registries.MENU, ColdWeaponCraftsmanship.MODID);
 
-    /** 制造界面容器类型 */
+    /**
+     * 制造界面容器类型。
+     * <p>
+     * 打开时由服务端经 {@code openMenu(provider, pos)} 把方块坐标写进包里，这里读出来交给菜单——
+     * 菜单用它判断玩家是否走远/方块是否被拆，从而自动关闭（见 {@code CraftingMenu.stillValid}）。
+     */
     public static final DeferredHolder<MenuType<?>, MenuType<CraftingMenu>> CRAFTING =
             MENU_TYPES.register("crafting",
-                    () -> IMenuTypeExtension.create(CraftingMenu::new));
+                    () -> IMenuTypeExtension.create((id, inv, buf) -> new CraftingMenu(id, inv, buf.readBlockPos())));
 
-    /** 装配界面容器类型 */
+    /** 装配界面容器类型——坐标用途同 {@link #CRAFTING} */
     public static final DeferredHolder<MenuType<?>, MenuType<AssemblingMenu>> ASSEMBLING =
             MENU_TYPES.register("assembling",
-                    () -> IMenuTypeExtension.create(AssemblingMenu::new));
+                    () -> IMenuTypeExtension.create((id, inv, buf) -> new AssemblingMenu(id, inv, buf.readBlockPos())));
 
     /** 将菜单类型注册器绑定到模组事件总线 */
     public static void init(IEventBus modEventBus) {

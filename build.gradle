@@ -71,6 +71,15 @@ neoForge {
         server {
             server()
             programArgument '--nogui'
+
+            // 服务端用独立的游戏目录：runClient 与 runServer 共用 run/ 会出两个问题——
+            //   1. logs/latest.log 被两个进程同时写，客户端那半的日志（第三步要靠它判贴图/注册表）
+            //      会和服务端的交错甚至打不开（Windows 上 rename 失败 = "Device or resource busy"）；
+            //   2. mods/ 共享，而 run/mods/ 里的 Sodium/Lithium 是纯客户端 mod，
+            //      服务端加载会 NoClassDefFoundError: org/lwjgl/Version 直接崩。
+            // 分开之后就不必再把那两个 jar 搬来搬去（搬走忘了搬回来是踩过的坑）。
+            gameDirectory = project.file('run-server')
+
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
         }
 
@@ -129,6 +138,11 @@ configurations {
 dependencies {
     // dev 调试依赖：Jade 实体/方块信息显示，仅 runClient 时加载，不发布进 mod 产物
     localRuntime files("libs/Jade-1.21.1-NeoForge-15.10.5.jar")
+
+    // dev 测试模组：Sodium / Lithium 性能模组，仅本地测试用，代码不引用、元数据不依赖
+    // 注意它们要放 run/mods/ 加载，不能用 localRuntime：Sodium 0.8.x 是 JarJar 套壳 jar，
+    // 走类路径时 FML 会选中外壳文件，嵌套 jar 里的 mixin 配置全部丢失（mod 显示已加载但不起作用）
+    // libs/ 下留了同版本 jar 作备份，run/ 被清掉时重新拷进 run/mods/ 即可
 
     // Example optional mod dependency with JEI
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime

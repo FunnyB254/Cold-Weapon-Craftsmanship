@@ -1,12 +1,10 @@
 package com.funnyb.cwc.client.renderer;
 
-import com.funnyb.cwc.crafting.PartDef;
+import com.funnyb.cwc.crafting.AssemblyTree;
+import com.funnyb.cwc.crafting.PartNode;
 import com.funnyb.cwc.crafting.PartRegistry;
-import com.funnyb.cwc.crafting.PartStacks;
 import com.funnyb.cwc.crafting.PartTypeDef;
-import com.funnyb.cwc.registry.CwcDataComponents;
 
-import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -95,12 +93,6 @@ public class AssembledWeaponRenderer extends BlockEntityWithoutLevelRenderer {
         /** CACHE: 是否需重建网格 */
         boolean dirty() { return dirty; }
 
-        /** CACHE: 贴图/几何变更时标记缓存失效并清空，下次渲染时重建 */
-        void markDirty() {
-            dirty = true;
-            cachedVertices.clear();
-        }
-
         /**
          * CACHE: 构建网格——把原 renderComposite 的逐像素双循环 + 邻域判断搬到此处，
          * 顶点数据（位置/UV/法线/颜色）一次性算好存入 cachedVertices，数值与原实现完全一致。
@@ -187,22 +179,46 @@ public class AssembledWeaponRenderer extends BlockEntityWithoutLevelRenderer {
     @Override
     public void renderByItem(ItemStack stack, ItemDisplayContext context,
                              PoseStack pose, MultiBufferSource buffer, int light, int overlay) {
-        String baseId = stack.get(CwcDataComponents.PART_IDENTITY.get());
+        AssemblyTree tree = AssemblyTree.of(stack);
+        String baseId = tree.rootId();
         if (baseId == null) return;
 
-        if (context == ItemDisplayContext.GUI) {
-            Lighting.setupForFlatItems();
-        }
+        // GUI 光照由 GuiGraphics 负责（它按模型的 usesBlockLight() 决定 setup/恢复），这里**不要**自己调
+        // Lighting——模型声明 gui_light=front 后 usesBlockLight() 为 false，GuiGraphics 会自动
+        // setupForFlatItems() 并在渲染后 setupFor3DItems() 恢复。此前这里无条件调 setupForFlatItems()，
+        // 而 builtin/entity 模型的 usesBlockLight() 为 true，GuiGraphics 既不预设也不恢复，
+        // 于是 flat 光照泄漏给之后的**方块类**物品（平面物品自己会设光照所以不受影响）。
 
-        // 收集底座 + 递归全部层级零件，按 layer 升序（底座最先、最底层）
-        List<PartRender> parts = new ArrayList<>();
-        int[] order = {0};
-        PartDef baseDef = PartRegistry.getPartDef(baseId);
-        PartTypeDef typeDef = baseDef != null ? PartRegistry.getTypeDef(baseDef.typeId()) : null;
-        parts.add(new PartRender(PartStacks.partIcon(baseId), 0f, 0f,
-                typeDef != null ? typeDef.layerValue() : 0.0, order[0]++));
-        collectChildren(stack, 0f, 0f, parts, order);
-        parts.sort(Comparator.comparingDouble(PartRender::layer).thenComparingInt(PartRender::order));
+        // 收集底座 + 全部层级零件，按 layer 升序（底座最先、最底层）
+        List<Part> parts = new ArrayList<>();
+        int order = 0;
+        PartTypeDef typeDef = tree.rootType();
+        parts.add(new Part(baseId, 0f, 0f, typeDef != null ? typeDef.layerValue() : 0.0, order++));
+
+        // 子件偏移逐层累加。nodes() 是 DFS 前序（父必在子之前），所以用"每个深度上最后一个节点的
+        // 累计偏移"当栈就够了，不需要在节点里存父指针。idAtDepth 供高度补偿取父件贴图高度。
+        float[] accX = new float[PartNode.MAX_DEPTH + 2];
+        float[] accY = new float[PartNode.MAX_DEPTH + 2];
+        String[] idAtDepth = new String[PartNode.MAX_DEPTH + 2];
+        idAtDepth[0] = baseId;
+        for (AssemblyTree.Node node : tree.nodes()) {
+            int depth = node.depth();
+            PartTypeDef.SlotDef slotDef = node.parentSlot();
+            PartTypeDef partType = node.type();
+            String parentId = idAtDepth[depth - 1];
+            float dx = (slotDef.positionX() - partType.positionX()) / 16.0f;
+            // 贴图 y 向下、模型 y 向上，dy 符号与 dx 相反
+            // 高度补偿：子件贴图比父件高时整体下移，使安装点与槽位对齐（等高校时补偿为 0）
+            float dy = (partType.positionY() - slotDef.positionY()) / 16.0f
+                    + (partSourceImage(parentId).getHeight() - partSourceImage(node.partId()).getHeight()) / 16f;
+            float x = accX[depth - 1] + dx;
+            float y = accY[depth - 1] + dy;
+            accX[depth] = x;
+            accY[depth] = y;
+            idAtDepth[depth] = node.partId();
+            parts.add(new Part(node.partId(), x, y, partType.layerValue(), order++));
+        }
+        parts.sort(Comparator.comparingDouble(Part::layer).thenComparingInt(Part::order));
 
         WeaponComposite comp = getComposite(parts);
         if (comp == null) return;
@@ -218,11 +234,10 @@ public class AssembledWeaponRenderer extends BlockEntityWithoutLevelRenderer {
     }
 
     /** 取合成体（缓存命中直接返回，未命中则合成并缓存） */
-    private static WeaponComposite getComposite(List<PartRender> parts) {
+    private static WeaponComposite getComposite(List<Part> parts) {
         StringBuilder key = new StringBuilder();
-        for (PartRender p : parts) {
-            String id = p.stack().get(CwcDataComponents.PART_IDENTITY.get());
-            if (id != null) key.append(id).append('|');
+        for (Part p : parts) {
+            key.append(p.partId()).append('|');
         }
         String k = key.toString();
         WeaponComposite comp = COMPOSITES.get(k);
@@ -254,32 +269,24 @@ public class AssembledWeaponRenderer extends BlockEntityWithoutLevelRenderer {
     }
 
     /** 把各零件贴图按 layer 顺序合成到一张贴图并上传为动态纹理 */
-    private static WeaponComposite buildComposite(List<PartRender> parts) {
+    private static WeaponComposite buildComposite(List<Part> parts) {
         float bx0 = Float.MAX_VALUE, by0 = Float.MAX_VALUE;
         float bx1 = -Float.MAX_VALUE, by1 = -Float.MAX_VALUE;
-        for (PartRender p : parts) {
+        for (Part p : parts) {
             bx0 = Math.min(bx0, p.dx());
             by0 = Math.min(by0, p.dy());
-            String id = p.stack().get(CwcDataComponents.PART_IDENTITY.get());
-            // 包围盒按零件实际贴图尺寸扩展（支持非 16×16 贴图），默认 16px 兜底
-            float pw = 1f, ph = 1f;
-            if (id != null) {
-                NativeImage src = partSourceImage(id);
-                pw = src.getWidth() / 16f;
-                ph = src.getHeight() / 16f;
-            }
-            bx1 = Math.max(bx1, p.dx() + pw);
-            by1 = Math.max(by1, p.dy() + ph);
+            // 包围盒按零件实际贴图尺寸扩展（支持非 16×16 贴图）
+            NativeImage src = partSourceImage(p.partId());
+            bx1 = Math.max(bx1, p.dx() + src.getWidth() / 16f);
+            by1 = Math.max(by1, p.dy() + src.getHeight() / 16f);
         }
         int cw = Math.round((bx1 - bx0) * 16);
         int ch = Math.round((by1 - by0) * 16);
         if (cw <= 0 || ch <= 0) return null;
 
         NativeImage canvas = new NativeImage(cw, ch, true);
-        for (PartRender p : parts) {
-            String id = p.stack().get(CwcDataComponents.PART_IDENTITY.get());
-            if (id == null) continue;
-            NativeImage src = partSourceImage(id);
+        for (Part p : parts) {
+            NativeImage src = partSourceImage(p.partId());
             // 合成画布：第 0 行 = 模型顶部（y=by1）；零件贴图行 ty 在模型 y=dy+sh/16-ty/16
             int ox = Math.round((p.dx() - bx0) * 16);
             int oy = Math.round((by1 - p.dy() - src.getHeight() / 16f) * 16);
@@ -348,37 +355,6 @@ public class AssembledWeaponRenderer extends BlockEntityWithoutLevelRenderer {
         }
     }
 
-    /**
-     * 递归收集 stack 各槽位已装零件（含嵌套子零件）的渲染项。
-     * 子零件偏移 = 父零件偏移 + (槽位安装点 − 子件安装点)/16，逐层累加。
-     */
-    private void collectChildren(ItemStack stack, float bx, float by,
-                                 List<PartRender> out, int[] order) {
-        String id = stack.get(CwcDataComponents.PART_IDENTITY.get());
-        if (id == null) return;
-        PartDef def = PartRegistry.getPartDef(id);
-        PartTypeDef type = def != null ? PartRegistry.getTypeDef(def.typeId()) : null;
-        if (type == null) return;
-        Map<String, ItemStack> children = stack.get(CwcDataComponents.ASSEMBLED_SLOTS.get());
-        if (children == null) return;
-        for (PartTypeDef.SlotDef slotDef : type.slots()) {
-            ItemStack partStack = children.get(slotDef.name());
-            if (partStack == null || partStack.isEmpty()) continue;
-            String partId = partStack.get(CwcDataComponents.PART_IDENTITY.get());
-            PartDef partDef = partId != null ? PartRegistry.getPartDef(partId) : null;
-            PartTypeDef partType = partDef != null ? PartRegistry.getTypeDef(partDef.typeId()) : null;
-            if (partType == null) continue;
-            float dx = (slotDef.positionX() - partType.positionX()) / 16.0f;
-            // 贴图 y 向下、模型 y 向上，dy 符号与 dx 相反
-            // 高度补偿：子件贴图比父件高时整体下移，使安装点与槽位对齐（等高校时补偿为 0）
-            float dy = (partType.positionY() - slotDef.positionY()) / 16.0f
-                    + (partSourceImage(id).getHeight() - partSourceImage(partId).getHeight()) / 16f;
-            out.add(new PartRender(partStack, bx + dx, by + dy, partType.layerValue(), order[0]++));
-            // 嵌套子零件（如刃上的护手）
-            collectChildren(partStack, bx + dx, by + dy, out, order);
-        }
-    }
-
     /** 取零件 id 对应的合成源贴图（atlas 中的原始图片，非裁剪区域） */
     private static NativeImage partSourceImage(String id) {
         return Minecraft.getInstance()
@@ -421,22 +397,49 @@ public class AssembledWeaponRenderer extends BlockEntityWithoutLevelRenderer {
     }
 
     /**
-     * 由零件 id 推导贴图路径：cwc.&lt;type&gt;.&lt;material&gt; → coldweaponcraftsmanship:item/cwc/&lt;type&gt;/&lt;material&gt;。
-     * 类型 id（无 material）用该类型第一个零件的贴图作代表。
+     * 由零件 id 推导贴图路径——注册表 id 的**路径**直接就是 {@code item/cwc/} 下的子路径。
+     * <p>
+     * 例：{@code coldweaponcraftsmanship:standard_blade/iron}
+     * → {@code coldweaponcraftsmanship:item/cwc/standard_blade/iron}。
+     * <p>
+     * <b>命名空间跟随 id 的命名空间</b>——第三方扩展包的零件贴图因而走它自己的资源命名空间
+     * （{@code 他们的命名空间:item/cwc/…}），与本模组互不干扰。现有零件的 id 命名空间就是本模组，
+     * 所以它们的贴图路径一个字都没变、贴图文件也不需要搬家。
+     * <p>
+     * 类型 id 没有自己的贴图，取该类型下 id 最小的零件的贴图作代表。
+     * 非法 id（旧存档遗留的点号格式）返回缺失贴图，不抛异常。
      */
     private static ResourceLocation textureOf(String id) {
-        if (id.indexOf('.') == id.lastIndexOf('.')) {
-            // 类型 id——取该类型第一个零件（按 id 排序）作代表
-            var parts = PartRegistry.getPartsByType(id).stream()
-                    .sorted(Comparator.comparing(PartDef::id))
-                    .toList();
-            if (!parts.isEmpty()) id = parts.get(0).id();
+        ResourceLocation key = parseId(id);
+        if (key == null) return MISSING_TEXTURE;
+
+        String path = key.getPath();
+        if (PartRegistry.getTypeDef(key) != null) {
+            // 是类型 id：取该类型下 id 最小的零件作代表（零件没有 id 字段，id 是注册表键）
+            path = PartRegistry.partMap().entrySet().stream()
+                    .filter(e -> key.equals(e.getValue().type()))
+                    .map(Map.Entry::getKey)
+                    .min(Comparator.comparing(ResourceLocation::toString))
+                    .map(ResourceLocation::getPath)
+                    .orElse(null);
+            if (path == null) return MISSING_TEXTURE;
         }
-        String rest = id.substring(id.indexOf('.') + 1);
-        return ResourceLocation.fromNamespaceAndPath("coldweaponcraftsmanship",
-                "item/cwc/" + rest.replace('.', '/'));
+        return ResourceLocation.fromNamespaceAndPath(key.getNamespace(), "item/cwc/" + path);
     }
 
-    /** 单个渲染项：栈 + 锚点偏移 + 图层优先级 */
-    private record PartRender(ItemStack stack, float dx, float dy, double layer, int order) {}
+    /** 缺失贴图——原版约定 */
+    private static final ResourceLocation MISSING_TEXTURE = ResourceLocation.withDefaultNamespace("missingno");
+
+    /** 字符串 → ResourceLocation，非法返回 null（旧存档的点号 id 会走到这里） */
+    private static ResourceLocation parseId(String id) {
+        if (id == null) return null;
+        try {
+            return ResourceLocation.parse(id);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 单个渲染项：零件 id + 锚点偏移 + 图层优先级 */
+    private record Part(String partId, float dx, float dy, double layer, int order) {}
 }

@@ -42,14 +42,16 @@ public class WorkTableBlock extends Block {
         if (level.isClientSide) {
             return InteractionResult.SUCCESS;   // 客户端只反馈"动作被消耗了"
         }
+        // 传坐标（NeoForge 的 openMenu 重载会自动写进打开界面的包）——菜单侧要用它判断
+        // "玩家走远了 / 方块被拆了"，从而自动关闭界面，与原版工作台一致。
         player.openMenu(new SimpleMenuProvider(
-                (containerId, inventory, p) -> menuFactory.create(containerId, inventory), title));
+                (containerId, inventory, p) -> menuFactory.create(containerId, inventory, pos), title), pos);
         return InteractionResult.CONSUME;
     }
 
     /** 菜单工厂——用自定义接口而非 BiFunction，避免 int containerId 装箱 */
     @FunctionalInterface
     public interface MenuFactory {
-        AbstractContainerMenu create(int containerId, Inventory inventory);
+        AbstractContainerMenu create(int containerId, Inventory inventory, BlockPos pos);
     }
 }

@@ -1,0 +1,16 @@
+{
+  "parser": "cwc:handle",
+  "type": "coldweaponcraftsmanship:one_handed_sword_handle",
+  "recipes": [
+    {
+      "ingredients": [
+        {},
+        {
+          "item": "minecraft:copper_ingot",
+          "count": 2
+        },
+        {}
+      ]
+    }
+  ]
+}

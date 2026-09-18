@@ -22,7 +22,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 import net.neoforged.neoforge.common.NeoForge;
-import net.neoforged.neoforge.event.server.ServerStartingEvent;
+import net.neoforged.neoforge.event.level.LevelEvent;
 import net.neoforged.neoforge.registries.DeferredRegister;
 
 /**
@@ -64,11 +64,22 @@ public class ColdWeaponCraftsmanship {
         LOGGER.info("Cold Weapon Craftsmanship common setup complete.");
     }
 
-    /** 服务端启动时加载零件注册表 */
+    /**
+     * 关卡加载时绑定零件注册表——**客户端与服务端都会触发这一个事件**，所以一个钩子同时覆盖两端。
+     * <p>
+     * 零件/类型定义现在是数据包注册表（{@link CwcRegistries}），由原版加载并在配置阶段同步到客户端；
+     * 这里只是把注册表引用缓存到 {@link PartRegistry}，好让拿不到 {@code RegistryAccess} 的查询点
+     * （如 {@code CwcWeapon.getDefaultAttributeModifiers}）也能查到定义。
+     */
     @SubscribeEvent
-    public void onServerStarting(ServerStartingEvent event) {
-        PartRegistry.reload(event.getServer().getResourceManager());
-        LOGGER.info("CWC part registry loaded on server");
+    public void onLevelLoad(LevelEvent.Load event) {
+        PartRegistry.bind(event.getLevel().registryAccess());
+    }
+
+    /** 关卡卸载时解绑，避免切换世界后残留上一个关卡的注册表引用 */
+    @SubscribeEvent
+    public void onLevelUnload(LevelEvent.Unload event) {
+        PartRegistry.unbind();
     }
 
     // ──── 客户端事件 ────

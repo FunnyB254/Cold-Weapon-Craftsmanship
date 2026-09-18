@@ -1,0 +1,33 @@
+{
+  "parser": "cwc:metal",
+  "type": "coldweaponcraftsmanship:half_sword",
+  "data": {
+    "damage": {
+      "base": 3.0,
+      "hardnessMultiplier": 0.5,
+      "toughnessMultiplier": 0
+    },
+    "speed": {
+      "base": -0.25,
+      "hardnessMultiplier": 0,
+      "toughnessMultiplier": 0
+    },
+    "durability": {
+      "base": 85,
+      "hardnessMultiplier": 5,
+      "toughnessMultiplier": 2
+    }
+  },
+  "recipes": [
+    {
+      "ingredients": [
+        {},
+        {
+          "item": "minecraft:copper_ingot",
+          "count": 3
+        },
+        {}
+      ]
+    }
+  ]
+}

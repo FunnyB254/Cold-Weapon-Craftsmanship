@@ -1,117 +1,122 @@
 package com.funnyb.cwc.crafting;
 
 import com.funnyb.cwc.ColdWeaponCraftsmanship;
-import com.google.gson.JsonParser;
+import com.funnyb.cwc.registry.CwcRegistries;
 
+import net.minecraft.core.Registry;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.packs.resources.ResourceManager;
 
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Deque;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
 
 /**
- * 零件注册表，扫描 data 下的 cwc 目录加载所有类型和零件。
- * id 从文件路径推导，不在 JSON 中重复存储。
+ * 零件定义的查询门面——**关卡作用域的注册表缓存**。
+ * <p>
+ * 零件与类型定义存放在两个数据包注册表里（{@link CwcRegistries}），由原版加载并同步到客户端。
+ * 但本模组的查询点分布在拿不到 {@code RegistryAccess} 的地方——最典型的是
+ * {@code CwcWeapon.getDefaultAttributeModifiers(ItemStack)}（属性按需推导要在那里查定义，而该方法的签名里
+ * 没有 {@code HolderLookup.Provider}）。所以这里在关卡加载时缓存一次注册表引用，之后全部查询走静态入口。
+ * <p>
+ * 这是一个**关卡作用域**的缓存，不是"自己维护的数据表"：内容始终是原版注册表本身（不复制、不解析），
+ * 关卡加载时绑定、卸载时解绑。这样既保住了"20 处查询点一行不用改"，也没有把数据的所有权从原版那里拿回来。
+ * <p>
+ * <b>未绑定时（进关卡之前，或关卡卸载后）所有查询返回 null</b>——调用方一律按"查不到定义"降级
+ * （属性退化为空、渲染跳过该零件），不会崩。这与旧的"客户端没有数据"是同一条降级路径。
  */
 public final class PartRegistry {
 
-    private static final Map<String, PartTypeDef> types = new LinkedHashMap<>();
-    private static final Map<String, PartDef> parts = new LinkedHashMap<>();
+    /** 当前关卡的注册表引用；未绑定时为 null */
+    private static Registry<PartTypeDef> typeRegistry;
+    private static Registry<PartDef> partRegistry;
 
     private PartRegistry() {}
 
-    /** 扫描并加载所有类型和零件 JSON */
-    public static void reload(ResourceManager rm) {
-        types.clear();
-        parts.clear();
+    // ──── 生命周期 ────
 
-        // 类型：key = "ns:first_folder/type_name" → id = "first_folder.type_name"
-        Map<String, ResourceLocation> typeFiles = scan(rm, "types", ".json");
-        for (var entry : typeFiles.entrySet()) {
-            String id = entry.getKey().substring(entry.getKey().indexOf(':') + 1)
-                    .replace('/', '.');
-            PartTypeDef def = parseType(id, entry.getValue(), rm);
-            if (def != null) types.put(def.id(), def);
+    /**
+     * 绑定当前关卡的注册表——由 {@code LevelEvent.Load} 调用，**客户端与服务端都会触发**，
+     * 所以一个钩子同时覆盖两端（单人的集成服务器两端共用同一份注册表，绑定两次也是同一个对象）。
+     */
+    public static void bind(RegistryAccess access) {
+        typeRegistry = access.registry(CwcRegistries.PART_TYPE).orElse(null);
+        partRegistry = access.registry(CwcRegistries.PART).orElse(null);
+        if (partRegistry == null) {
+            // 只会在数据包尚未加载时出现；绑定不上不影响运行（查询降级），但要能诊断
+            ColdWeaponCraftsmanship.LOGGER.warn("零件注册表尚未就绪，零件查询将暂时返回空");
+            return;
         }
-        ColdWeaponCraftsmanship.LOGGER.info("Loaded {} part types", types.size());
+        ColdWeaponCraftsmanship.LOGGER.info("Loaded {} part types / {} parts",
+                typeRegistry == null ? 0 : typeRegistry.size(), partRegistry.size());
         warnOnTypeCycles();
-
-        // 零件：key = "ns:first_folder/type_name/part_name" → id = "first_folder.type_name.part_name"
-        Map<String, ResourceLocation> partFiles = scan(rm, "parts", ".json");
-        for (var entry : partFiles.entrySet()) {
-            String id = entry.getKey().substring(entry.getKey().indexOf(':') + 1)
-                    .replace('/', '.');
-            PartDef def = parsePart(id, entry.getValue(), rm);
-            if (def != null) parts.put(def.id(), def);
-        }
-        ColdWeaponCraftsmanship.LOGGER.info("Loaded {} parts", parts.size());
     }
-
-    // --- 查询 ---
-
-    public static PartTypeDef getTypeDef(String id) { return types.get(id); }
-    public static PartDef getPartDef(String id) { return parts.get(id); }
-    public static Collection<PartDef> getAllParts() { return parts.values(); }
-
-    public static List<PartDef> getPartsByType(String typeId) {
-        return parts.values().stream()
-                .filter(p -> p.typeId().equals(typeId))
-                .toList();
-    }
-
-    // --- 内部 ---
 
     /**
      * 类型图环检测——**仅记 ERROR，不阻止加载**。
      * <p>
-     * 属性聚合（{@link WeaponStats}）与渲染都沿装配树递归，类型图上出现环意味着"理论上"可以
-     * 无限嵌套。但递归遍历的是**物品树**而非类型图——玩家仍须逐级手工装配，深度实际由人力封顶，
-     * 不构成崩溃风险。所以这条是**给数据作者的诊断**：发现问题只报，数据照常注册。
+     * 属性聚合（{@link AssemblyTree}）与渲染都沿装配树递归，类型图上出现环意味着"理论上"可以无限嵌套。
+     * 但递归遍历的是**物品树**而非类型图——玩家仍须逐级手工装配，深度实际由人力封顶，
+     * 而且 {@link PartNode#MAX_DEPTH} 另有兜底，不构成崩溃风险。
+     * 所以这是**给数据作者的诊断**：发现问题只报，数据照常注册。
      */
     private static void warnOnTypeCycles() {
-        // 建图：类型 → 它的槽位能接受的类型集合（按与装配界面相同的约束匹配规则）
-        Map<String, Set<String>> edges = new LinkedHashMap<>();
-        for (PartTypeDef from : types.values()) {
-            Set<String> accepted = new LinkedHashSet<>();
-            for (PartTypeDef candidate : types.values()) {
-                for (PartTypeDef.SlotDef slot : from.slots()) {
-                    if (slotAccepts(slot, candidate)) {
-                        accepted.add(candidate.id());
+        Map<ResourceLocation, PartTypeDef> types = typeMap();
+        if (types.isEmpty()) return;
+
+        // 建图：类型 → 它的槽位能接受的类型集合（判据与装配台的放入校验同源，都走 SlotDef.accepts）
+        Map<ResourceLocation, Set<ResourceLocation>> edges = new LinkedHashMap<>();
+        for (Map.Entry<ResourceLocation, PartTypeDef> from : types.entrySet()) {
+            Set<ResourceLocation> accepted = new LinkedHashSet<>();
+            for (Map.Entry<ResourceLocation, PartTypeDef> candidate : types.entrySet()) {
+                for (PartTypeDef.SlotDef slot : from.getValue().slots()) {
+                    if (slot.accepts(candidate.getValue())) {
+                        accepted.add(candidate.getKey());
                         break;
                     }
                 }
             }
-            edges.put(from.id(), accepted);
+            edges.put(from.getKey(), accepted);
         }
 
-        Set<String> done = new HashSet<>();
-        Set<String> onStack = new HashSet<>();
-        Deque<String> path = new ArrayDeque<>();
-        for (String id : edges.keySet()) {
+        Set<ResourceLocation> done = new HashSet<>();
+        Set<ResourceLocation> onStack = new HashSet<>();
+        Deque<ResourceLocation> path = new ArrayDeque<>();
+        for (ResourceLocation id : edges.keySet()) {
             findCycle(id, edges, done, onStack, path);
         }
     }
 
     /** 深度优先找环；发现回边就打印完整环路径 */
-    private static void findCycle(String node, Map<String, Set<String>> edges, Set<String> done,
-                                  Set<String> onStack, Deque<String> path) {
+    private static void findCycle(ResourceLocation node, Map<ResourceLocation, Set<ResourceLocation>> edges,
+                                  Set<ResourceLocation> done, Set<ResourceLocation> onStack,
+                                  Deque<ResourceLocation> path) {
         if (done.contains(node)) return;
         if (onStack.contains(node)) {
             List<String> cycle = new ArrayList<>();
             boolean started = false;
-            for (String s : path) {          // ArrayDeque 迭代顺序 = 入栈顺序
+            for (ResourceLocation s : path) {          // ArrayDeque 迭代顺序 = 入栈顺序
                 if (s.equals(node)) started = true;
-                if (started) cycle.add(s);
+                if (started) cycle.add(s.toString());
             }
-            cycle.add(node);
+            cycle.add(node.toString());
             ColdWeaponCraftsmanship.LOGGER.error(
                     "类型图存在环，装配可无限嵌套：{}（仅提示，不阻止加载）", String.join(" -> ", cycle));
             return;
         }
         onStack.add(node);
         path.addLast(node);
-        for (String next : edges.getOrDefault(node, Set.of())) {
+        for (ResourceLocation next : edges.getOrDefault(node, Set.of())) {
             findCycle(next, edges, done, onStack, path);
         }
         path.removeLast();
@@ -119,70 +124,94 @@ public final class PartRegistry {
         done.add(node);
     }
 
+    /** 解绑——由 {@code LevelEvent.Unload} 调用，避免关卡切换后残留上一个世界的引用 */
+    public static void unbind() {
+        typeRegistry = null;
+        partRegistry = null;
+    }
+
+    // ──── 查询 ────
+
     /**
-     * 槽位约束能否被该类型满足——与 {@code AssemblingMenu.matchesConstraint} 同规则：
-     * 约束为空 = 全收；约束键在候选类型 data 中缺失或不匹配即拒绝。
-     * 注意匹配的是类型的**语义值**（如 data.type = "attack"/"guard"），不是类型 id。
+     * 按 id 取类型定义，查不到返回 null。
+     * <p>
+     * 接受 id 字符串而不是 {@code ResourceLocation}：调用方大多是从物品组件的
+     * {@code PART_IDENTITY} 里拿到的字符串。非法 id（例如旧存档里的点号格式）返回 null 而不是抛异常。
      */
-    private static boolean slotAccepts(PartTypeDef.SlotDef slot, PartTypeDef candidate) {
-        Map<String, List<String>> constraint = slot.constraint();
-        if (constraint == null || constraint.isEmpty()) return true;
-        for (Map.Entry<String, List<String>> entry : constraint.entrySet()) {
-            List<String> allowed = entry.getValue();
-            if (allowed == null) continue;
-            String value = candidate.data().get(entry.getKey());
-            if (value == null || !allowed.contains(value)) return false;
-        }
-        return true;
+    public static PartTypeDef getTypeDef(String id) {
+        return lookup(typeRegistry, id);
     }
 
-    private static Map<String, ResourceLocation> scan(ResourceManager rm, String basePath, String suffix) {
-        Map<String, ResourceLocation> result = new LinkedHashMap<>();
-        String prefix = basePath + "/";
-        for (var ns : rm.getNamespaces()) {
-            rm.listResources(basePath, loc -> loc.getPath().endsWith(suffix)).forEach((loc, res) -> {
-                String path = loc.getPath();
-                int idx = path.indexOf(prefix);
-                if (idx < 0) return;
-                String rel = path.substring(idx + prefix.length());
-                String key = ns + ":" + rel.substring(0, rel.length() - suffix.length());
-                result.put(key, loc);
-            });
-        }
-        return result;
+    /** 按 id 取零件定义，查不到返回 null */
+    public static PartDef getPartDef(String id) {
+        return lookup(partRegistry, id);
     }
 
-    private static PartTypeDef parseType(String id, ResourceLocation loc, ResourceManager rm) {
-        String parserId = readField(loc, rm, "parser");
-        BaseParser parser = ParserRegistry.get(parserId != null ? parserId : "cwc:default");
-        if (parser == null) {
-            ColdWeaponCraftsmanship.LOGGER.error("Unknown parser '{}' for type {}", parserId, loc);
-            return null;
-        }
-        return parser.parseType(id, loc, rm);
+    /** 按 id 取类型定义——已持有 {@link ResourceLocation} 时用这个，免去字符串往返（零件的 {@code type} 字段就是） */
+    public static PartTypeDef getTypeDef(ResourceLocation id) {
+        return typeRegistry == null || id == null ? null : typeRegistry.get(id);
     }
 
-    private static PartDef parsePart(String id, ResourceLocation loc, ResourceManager rm) {
-        String parserId = readField(loc, rm, "parser");
-        BaseParser parser = ParserRegistry.get(parserId != null ? parserId : "cwc:default");
-        if (parser == null) {
-            ColdWeaponCraftsmanship.LOGGER.error("Unknown parser '{}' for part {}", parserId, loc);
-            return null;
-        }
-        return parser.parsePart(id, loc, rm);
+    /** 按 id 取零件定义——已持有 {@link ResourceLocation} 时用这个 */
+    public static PartDef getPartDef(ResourceLocation id) {
+        return partRegistry == null || id == null ? null : partRegistry.get(id);
     }
 
-    /** 读取 JSON 顶层某个字符串字段 */
-    static String readField(ResourceLocation loc, ResourceManager rm, String field) {
+    /** 全部零件定义（按 id 排序，确定性顺序） */
+    public static Collection<PartDef> getAllParts() {
+        return partMap().values();
+    }
+
+    /** 某类型下的全部零件（按 id 排序） */
+    public static List<PartDef> getPartsByType(String typeId) {
+        ResourceLocation type = parse(typeId);
+        if (type == null) return List.of();
+        return partMap().entrySet().stream()
+                .filter(e -> type.equals(e.getValue().type()))
+                .map(Map.Entry::getValue)
+                .toList();
+    }
+
+    /**
+     * 全部零件——**id 与定义都要的场合用这个**（零件没有 id 字段，id 是注册表键）。
+     * 返回按 id 排序的不可变快照，顺序确定。
+     */
+    public static Map<ResourceLocation, PartDef> partMap() {
+        if (partRegistry == null) return Map.of();
+        // TreeMap 按 id 字符串排序 → 遍历顺序确定（注册表自身的顺序不保证跨版本一致）
+        Map<ResourceLocation, PartDef> out = new TreeMap<>(Comparator.comparing(ResourceLocation::toString));
+        partRegistry.entrySet().forEach(e -> out.put(e.getKey().location(), e.getValue()));
+        return Collections.unmodifiableMap(out);
+    }
+
+    /** 全部类型——id 与定义都要的场合用这个 */
+    public static Map<ResourceLocation, PartTypeDef> typeMap() {
+        if (typeRegistry == null) return Map.of();
+        Map<ResourceLocation, PartTypeDef> out = new TreeMap<>(Comparator.comparing(ResourceLocation::toString));
+        typeRegistry.entrySet().forEach(e -> out.put(e.getKey().location(), e.getValue()));
+        return Collections.unmodifiableMap(out);
+    }
+
+    /** 注册表是否已就绪（数据包加载完成）。供诊断与"能不能装配"这类判断用 */
+    public static boolean isReady() {
+        return partRegistry != null;
+    }
+
+    // ──── 内部 ────
+
+    private static <T> T lookup(Registry<T> registry, String id) {
+        if (registry == null || id == null || id.isEmpty()) return null;
+        ResourceLocation key = parse(id);
+        return key == null ? null : registry.get(key);
+    }
+
+    /** 字符串 → ResourceLocation，非法返回 null（旧存档的点号 id 会走到这里，按"查不到"处理） */
+    private static ResourceLocation parse(String id) {
+        if (id == null) return null;
         try {
-            var resource = rm.getResourceOrThrow(loc);
-            try (var reader = new InputStreamReader(resource.open(), StandardCharsets.UTF_8)) {
-                var obj = JsonParser.parseReader(reader).getAsJsonObject();
-                if (obj.has(field)) return obj.get(field).getAsString();
-            }
+            return ResourceLocation.parse(id);
         } catch (Exception e) {
-            ColdWeaponCraftsmanship.LOGGER.warn("Failed to read field '{}' from {}: {}", field, loc, e.toString());
+            return null;
         }
-        return null;
     }
 }

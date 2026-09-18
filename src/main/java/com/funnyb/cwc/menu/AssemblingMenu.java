@@ -2,13 +2,15 @@ package com.funnyb.cwc.menu;
 
 import com.funnyb.cwc.layout.Layouts;
 import com.funnyb.cwc.crafting.PartDef;
+import com.funnyb.cwc.crafting.PartNode;
 import com.funnyb.cwc.crafting.PartRegistry;
+import com.funnyb.cwc.crafting.PartStacks;
 import com.funnyb.cwc.crafting.PartTypeDef;
 import com.funnyb.cwc.crafting.WeaponStats;
 import com.funnyb.cwc.registry.CwcDataComponents;
 import com.funnyb.cwc.registry.CwcMenuTypes;
 
-import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.Container;
 import net.minecraft.world.ContainerListener;
@@ -16,9 +18,11 @@ import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ContainerLevelAccess;
 import net.minecraft.world.inventory.SimpleContainerData;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.Block;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -26,7 +30,8 @@ import java.util.Map;
 /**
  * 装配界面容器——服务端权威 + 单向数据流。
  * <p>
- * 数据源：底座武器 ItemStack 上的 ASSEMBLED_SLOTS（槽位名→完整零件 ItemStack）。
+ * 数据源：底座武器 ItemStack 上的 ASSEMBLED_SLOTS（槽位名→{@link PartNode} 装配子树）。只存零件 id 与结构，
+ * 显示用的 ItemStack 经 {@link PartStacks#partIcon} 现建。
  * scrollRows 通过 ContainerData 同步到客户端；partContainer 为显示缓存，内容从 ASSEMBLED_SLOTS 刷新；
  * 玩家拖入/拖出零件经 ContainerListener 同步回 ASSEMBLED_SLOTS，滚动刷新期间用 suppressSync 抑制回写。
  */
@@ -48,19 +53,21 @@ public class AssemblingMenu extends AbstractContainerMenu implements ContainerLi
     /** 滚动行数同步——ContainerData 自动双向同步到客户端 */
     private final SimpleContainerData scrollData = new SimpleContainerData(1);
 
-    /** 玩家背包引用——用于装/取零件 */
-    private final Inventory playerInventory;
-
     /** 滚动刷新 partContainer 期间抑制同步，避免读到中间态 */
     private boolean suppressSync = false;
 
-    public AssemblingMenu(int containerId, Inventory playerInventory, FriendlyByteBuf extraData) {
-        this(containerId, playerInventory);
-    }
+    /** 打开本界面的方块坐标——{@code stillValid} 用它判断玩家是否走远 */
+    private final BlockPos tablePos;
+    /** 打开时的方块类型——被换成别的方块就关界面 */
+    private final Block openBlock;
 
-    public AssemblingMenu(int containerId, Inventory playerInventory) {
+    /**
+     * @param tablePos 打开界面的方块坐标，由服务端经 {@code openMenu(provider, pos)} 写进包里传来
+     */
+    public AssemblingMenu(int containerId, Inventory playerInventory, BlockPos tablePos) {
         super(CwcMenuTypes.ASSEMBLING.get(), containerId);
-        this.playerInventory = playerInventory;
+        this.tablePos = tablePos;
+        this.openBlock = playerInventory.player.level().getBlockState(tablePos).getBlock();
         var layout = Layouts.craftingMenu();
         this.inventoryLayout = new InventoryLayout(
                 "textures/gui/assembling.png",
@@ -119,9 +126,18 @@ public class AssemblingMenu extends AbstractContainerMenu implements ContainerLi
         return scrollData.get(0);
     }
 
-    /** 服务端设置滚动行数——客户端通过 SetScrollPacket 调用 */
+    /**
+     * 服务端设置滚动行数——客户端通过 SetScrollPacket 调用。
+     * <p>
+     * **值没变就直接返回**：客户端在鼠标位于列表主体内时**每格滚轮都会发包**
+     * （{@code SlotList.requestScroll} 只把值夹到范围、不与当前值比较），不挡的话每次都会跑一遍
+     * {@link #refreshDisplay()} + {@link #broadcastChanges()}（整菜单重同步）。
+     * 当前数据下能滚动的行数恒为 0（手柄 2 槽、刃 1 槽，可见 3 行），于是滚轮什么也滚不动、包却照发。
+     */
     public void setScrollRows(int rows) {
-        scrollData.set(0, Math.max(0, Math.min(rows, maxScrollRows())));
+        int clamped = Math.max(0, Math.min(rows, maxScrollRows()));
+        if (clamped == scrollData.get(0)) return;
+        scrollData.set(0, clamped);
         refreshDisplay();
         broadcastChanges();
     }
@@ -151,12 +167,37 @@ public class AssemblingMenu extends AbstractContainerMenu implements ContainerLi
         return getSlotDefAt(getScrollRows() + visibleIndex);
     }
 
-    /** 读取底座武器 ASSEMBLED_SLOTS 中某槽位已装零件的完整 ItemStack，无则返回 EMPTY */
+    /**
+     * 读取底座武器某槽位已装零件的**显示用** ItemStack（含该零件自己的子树），无则 EMPTY。
+     * 数据源只存零件 id，ItemStack 在这里按需现建。
+     */
     public ItemStack getAssembledPartStack(String slotName) {
         ItemStack base = baseContainer.getItem(0);
         if (base.isEmpty()) return ItemStack.EMPTY;
-        Map<String, ItemStack> map = base.get(CwcDataComponents.ASSEMBLED_SLOTS.get());
-        return map == null ? ItemStack.EMPTY : map.getOrDefault(slotName, ItemStack.EMPTY);
+        Map<String, PartNode> map = base.get(CwcDataComponents.ASSEMBLED_SLOTS.get());
+        if (map == null) return ItemStack.EMPTY;
+        PartNode node = map.get(slotName);
+        return node == null ? ItemStack.EMPTY : displayStack(node);
+    }
+
+    /**
+     * 由装配节点重建显示用 ItemStack，并带上它自己的子树——这样"刃上装了镡"这类中间状态在槽位里
+     * 也能渲染出子零件（渲染器沿 ASSEMBLED_SLOTS 递归）。
+     */
+    private static ItemStack displayStack(PartNode node) {
+        ItemStack stack = PartStacks.partIcon(node.id());
+        if (node.hasChildren()) {
+            stack.set(CwcDataComponents.ASSEMBLED_SLOTS.get(), node.children());
+        }
+        return stack;
+    }
+
+    /** 由槽位里的 ItemStack 取回装配节点（含其子树）；没有身份返回 null */
+    private static PartNode nodeOf(ItemStack stack) {
+        String id = stack.get(CwcDataComponents.PART_IDENTITY.get());
+        if (id == null) return null;
+        Map<String, PartNode> children = stack.get(CwcDataComponents.ASSEMBLED_SLOTS.get());
+        return new PartNode(id, children == null ? Map.of() : children);
     }
 
     /** 底座武器的类型定义 */
@@ -167,18 +208,21 @@ public class AssemblingMenu extends AbstractContainerMenu implements ContainerLi
         if (identity == null) return null;
         PartDef def = PartRegistry.getPartDef(identity);
         if (def == null) return null;
-        return PartRegistry.getTypeDef(def.typeId());
+        return PartRegistry.getTypeDef(def.type());
     }
 
     // ──── 装配同步 ────
 
-    /** 校验零件是否满足槽位 constraint */
+    /**
+     * 校验零件是否满足槽位约束——走 {@link PartTypeDef.SlotDef#accepts}，与类型图环检测共用同一套判据
+     * （此前这里和 {@code PartRegistry} 各写了一遍，容易漂移）。
+     */
     private boolean isValidForSlot(PartTypeDef.SlotDef slotDef, String partId) {
         PartDef partDef = PartRegistry.getPartDef(partId);
         if (partDef == null) return false;
-        PartTypeDef partType = PartRegistry.getTypeDef(partDef.typeId());
+        PartTypeDef partType = PartRegistry.getTypeDef(partDef.type());
         if (partType == null) return false;
-        return matchesConstraint(slotDef, partType.data());
+        return slotDef.accepts(partType);
     }
 
     // ──── 显示刷新 ────
@@ -206,13 +250,17 @@ public class AssemblingMenu extends AbstractContainerMenu implements ContainerLi
 
     /**
      * 玩家拖入/拖出零件后（containerChanged 触发），把 partContainer 当前内容同步到底座 ASSEMBLED_SLOTS。
-     * 每槽存零件完整 stack 的副本 → 写入对应槽位名映射；空槽移除映射。
+     * 每槽把零件转成装配节点（id + 子树）写入；空槽移除映射。
+     * <p>
+     * 变更判定用 {@link PartNode#equals}——record 的值语义，这才是"零件真的换了吗"。
+     * 旧实现用 {@code ItemStack.matches(prev, copy)} 比两个 {@code copy()} 出来的不同实例，因
+     * {@code ItemStack} 没有值语义 {@code equals} 而**恒判为变**，导致每次容器变化都全量重算 + 多发同步包。
      */
     private void syncPartSlots() {
         ItemStack base = baseContainer.getItem(0);
         if (base.isEmpty()) return;
 
-        Map<String, ItemStack> map = new HashMap<>(base.getOrDefault(
+        Map<String, PartNode> map = new HashMap<>(base.getOrDefault(
                 CwcDataComponents.ASSEMBLED_SLOTS.get(), Map.of()));
         boolean changed = false;
 
@@ -224,15 +272,15 @@ public class AssemblingMenu extends AbstractContainerMenu implements ContainerLi
             if (stack.isEmpty()) {
                 if (map.remove(slotName) != null) changed = true;
             } else {
-                ItemStack copy = stack.copy();
-                ItemStack prev = map.put(slotName, copy);
-                if (prev == null || !ItemStack.matches(prev, copy)) changed = true;
+                PartNode node = nodeOf(stack);
+                if (node == null) continue;   // 槽里是没有身份的物品：忽略，不动数据源
+                if (!node.equals(map.put(slotName, node))) changed = true;
             }
         }
 
         if (changed) {
             base.set(CwcDataComponents.ASSEMBLED_SLOTS.get(), map);
-            WeaponStats.apply(base);
+            WeaponStats.syncDurability(base);
             broadcastChanges();
         }
     }
@@ -251,26 +299,10 @@ public class AssemblingMenu extends AbstractContainerMenu implements ContainerLi
             scrollData.set(0, 0);
             refreshDisplay();
             // 底座放入/更换时按已存 ASSEMBLED_SLOTS 重算武器属性（幂等，兜底旧物品）
-            WeaponStats.apply(baseContainer.getItem(0));
+            WeaponStats.syncDurability(baseContainer.getItem(0));
         } else if (container == partContainer && !suppressSync) {
             syncPartSlots();
         }
-    }
-
-    /** 校验零件类型 data 是否满足槽位 constraint */
-    private boolean matchesConstraint(PartTypeDef.SlotDef slotDef, Map<String, String> partData) {
-        Map<String, java.util.List<String>> constraint = slotDef.constraint();
-        if (constraint == null || constraint.isEmpty()) return true;
-        for (Map.Entry<String, java.util.List<String>> entry : constraint.entrySet()) {
-            // JSON 写 "constraint": { "weight": null } 时 GSON 会得到"键存在、值为 null"的条目
-            java.util.List<String> allowed = entry.getValue();
-            if (allowed == null) continue;                      // 值为 null 视为该键无约束，避免 NPE
-            String value = partData.get(entry.getKey());
-            if (value == null || !allowed.contains(value)) {
-                return false;
-            }
-        }
-        return true;
     }
 
     /** 名称长度上限——对齐原版铁砧的服务端限制 */
@@ -313,8 +345,14 @@ public class AssemblingMenu extends AbstractContainerMenu implements ContainerLi
         return ItemStack.EMPTY;
     }
 
+    /**
+     * 玩家走远或方块被拆后自动关闭界面——与原版工作台同一套。见 {@code CraftingMenu#stillValid}。
+     * <p>
+     * 对本菜单尤其要紧：底座武器放在菜单自己的容器里，只有 {@link #removed(Player)} 才归还。
+     * 界面永不自动关闭意味着走远之后它一直挂在服务端，异常退出就随菜单一起丢。
+     */
     @Override
     public boolean stillValid(Player player) {
-        return true;
+        return stillValid(ContainerLevelAccess.create(player.level(), tablePos), player, openBlock);
     }
 }

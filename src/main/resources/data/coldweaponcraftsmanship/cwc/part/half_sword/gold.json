@@ -1,0 +1,33 @@
+{
+  "parser": "cwc:metal",
+  "type": "coldweaponcraftsmanship:half_sword",
+  "data": {
+    "damage": {
+      "base": 3.5,
+      "hardnessMultiplier": 0.5,
+      "toughnessMultiplier": 0
+    },
+    "speed": {
+      "base": -0.35,
+      "hardnessMultiplier": 0,
+      "toughnessMultiplier": 0
+    },
+    "durability": {
+      "base": 60,
+      "hardnessMultiplier": 5,
+      "toughnessMultiplier": 2
+    }
+  },
+  "recipes": [
+    {
+      "ingredients": [
+        {},
+        {
+          "item": "minecraft:gold_ingot",
+          "count": 3
+        },
+        {}
+      ]
+    }
+  ]
+}

@@ -5,6 +5,7 @@ import com.funnyb.cwc.crafting.PartTypeDef;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.WidgetSprites;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 
@@ -15,8 +16,8 @@ import java.util.Map;
  * 行级滚动列表——装配界面零件改造列表的视觉层。
  * <p>
  * 创造模式式滚动：槽位位置固定（由真实 InputSlot 渲染物品框），行背景（凹底 + 槽位框）
- * 已永久烘焙在 assembling.png 上，本组件只负责槽位名称文本、详情热区字形与悬停
- * tooltip 的渲染，以及滚动交互。
+ * 已永久烘焙在 assembling.png 上，本组件只负责槽位名称文本、详情热区（原版键体 + 字形）
+ * 与悬停 tooltip 的渲染，以及滚动交互。
  * 滚动行数由服务端 ContainerData 权威持有，本组件仅向服务端发送滚动意图。
  * <p>
  * 布局参数从 assets/cwc/gui/assembling_screen.json 读取，资源包可覆盖。
@@ -26,6 +27,17 @@ public class SlotList {
     /** 滚动条滑块贴图 */
     private static final ResourceLocation SLIDER_TEX =
             ResourceLocation.fromNamespaceAndPath("coldweaponcraftsmanship", "textures/gui/slider.png");
+
+    /**
+     * 详情热区的键体精灵——就是原版按钮用的那三张，悬停时和原版按钮一样换成高亮态。
+     * <p>
+     * 只借外观：本组件不接收点击、不注册控件，所以详情热区既不会触发事件，
+     * 也不会发出按钮音效——它压根没有可点的地方。
+     */
+    private static final WidgetSprites INFO_SPRITES = new WidgetSprites(
+            ResourceLocation.withDefaultNamespace("widget/button"),
+            ResourceLocation.withDefaultNamespace("widget/button_disabled"),
+            ResourceLocation.withDefaultNamespace("widget/button_highlighted"));
 
     /** 单行视觉数据：槽位定义 + 是否已装零件 */
     public record Row(PartTypeDef.SlotDef slotDef, boolean hasPart) {}
@@ -103,7 +115,6 @@ public class SlotList {
     private int infoOffsetX() { return cfg().info.x_offset; }
     private int infoOffsetY() { return cfg().info.y_offset; }
     private int infoSize() { return cfg().info.size; }
-    private int infoHoverColor() { return cfg().info.hover_color; }
 
     /** 列表主体宽度（不含滑条） */
     private int bodyWidth() {
@@ -161,9 +172,16 @@ public class SlotList {
         return false;
     }
 
-    /** 发送滚动请求到服务端 */
+    /**
+     * 发送滚动请求到服务端——**值没变就不发**。
+     * <p>
+     * 滚轮每格都会走到这里，而当前数据下列表其实滚不动（可见 3 行、总行数不足），
+     * 不比较就每格发一次 {@code SetScrollPacket}，服务端收到要跑整菜单重同步。
+     * 拖滑块同理：同一行内来回移动不该重复发包。
+     */
     private void requestScroll(int rows) {
         int clamped = Math.max(0, Math.min(rows, maxScrollRows()));
+        if (clamped == scrollRows) return;
         if (onScroll != null) onScroll.accept(clamped);
     }
 
@@ -213,7 +231,7 @@ public class SlotList {
     // ──── 渲染 ────
 
     /**
-     * 渲染列表：scissor 裁剪 → 各行的详情热区字形 + 槽位名称文本 → 滑块。
+     * 渲染列表：scissor 裁剪 → 各行的详情热区（键体 + 字形）+ 槽位名称文本 → 滑块。
      * 行背景与物品框都不由本组件画（前者烘焙在面板上，后者由真实 InputSlot 渲染）。
      */
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY) {
@@ -227,13 +245,12 @@ public class SlotList {
             // 行背景【不在这里画】——凹底和 3 个槽位框已永久烘焙进 assembling.png，
             // 像原版容器那样固定不动，滚动只换内容。这里只画随行变化的东西。
 
-            // 详情热区——带键体的按钮放不下（12x12 扣掉原版九宫格 3px 边框只剩 6x6），
-            // 所以只画字形，悬停时垫一块高亮。
-            if (isOnInfo(mouseX, mouseY, i)) {
-                guiGraphics.fill(bodyX() + infoOffsetX(), ry + infoOffsetY(),
-                        bodyX() + infoOffsetX() + infoSize(), ry + infoOffsetY() + infoSize(),
-                        infoHoverColor());
-            }
+            // 详情热区——键体和帮助/循环按钮同源，都是原版 widget/button 九宫格精灵，
+            // 悬停时原版会自动换成 button_highlighted，就是那种「亮起来」的按下感。
+            // 尺寸必须容得下原画的符号：扣掉九宫格 3px 边框后的内区要装得下
+            // 那三个方点加 1px 投影（共 9x3），16x16 的内区是 10x10，放得下且有余量。
+            guiGraphics.blitSprite(INFO_SPRITES.get(true, isOnInfo(mouseX, mouseY, i)),
+                    bodyX() + infoOffsetX(), ry + infoOffsetY(), infoSize(), infoSize());
             guiGraphics.blit(GuiIcons.INFO, bodyX() + infoOffsetX(), ry + infoOffsetY(),
                     0, 0, infoSize(), infoSize(), infoSize(), infoSize());
 

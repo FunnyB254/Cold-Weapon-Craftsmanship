@@ -10,6 +10,8 @@ import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.server.packs.resources.ResourceManager;
 
 import java.io.Reader;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -25,6 +27,13 @@ import java.util.function.Supplier;
  * </ul>
  * <p>
  * 资源包作者只需在自己的资源包中放入同名 JSON 文件即可覆盖对应布局。
+ * <p>
+ * <b>调用方必须遵守的不变式：布局值只能影响客户端的渲染与交互，绝不能进入服务端逻辑。</b>
+ * 服务端拿不到资源管理器，{@link #load} 一律回落 Java 默认值，所以**同一个字段在两端可能得到不同的值**。
+ * 今天无害——所有字段都是贴图路径、像素坐标、颜色，只在客户端用于绘制；菜单侧读它们只为给 {@code Slot}
+ * 定位，而槽位坐标不上网络（两端各自构造菜单，槽位数与顺序一致，所以容器同步没问题，只有客户端那份坐标
+ * 用于渲染）。一旦有人把布局值用在服务端会读到的地方（"槽位数量""容量"这类，或写进存档），就会变成
+ * 两端真实不一致的 bug。真到那一步，正确做法是把该字段从本类挪出去，**而不是给服务端塞一份硬编码默认值**。
  *
  * @see CwcClientEvents#onRegisterReloadListeners
  */
@@ -49,12 +58,14 @@ public final class Layouts {
             })
             .create();
 
+    /** 已记录过"服务端回落默认值"的路径——纯诊断用途，避免刷屏 */
+    private static final Set<String> SERVER_FALLBACK_LOGGED = new HashSet<>();
+
     // 缓存实例，首次访问时惰性加载
     private static CraftingMenu craftingMenu;
     private static CraftingScreen craftingScreen;
     private static IconGrid iconGrid;
     private static InventoryLayout inventoryLayout;
-    private static BaseInventoryScreen baseInventoryScreen;
     private static AssemblingScreenLayout assemblingScreen;
 
     private Layouts() {}
@@ -65,7 +76,6 @@ public final class Layouts {
         craftingScreen = null;
         iconGrid = null;
         inventoryLayout = null;
-        baseInventoryScreen = null;
         assemblingScreen = null;
     }
 
@@ -95,12 +105,6 @@ public final class Layouts {
     public static InventoryLayout inventoryLayout() {
         if (inventoryLayout == null) inventoryLayout = load("gui/inventory_layout.json", InventoryLayout.class);
         return inventoryLayout;
-    }
-
-    /** @return 物品渲染缩放与偏移参数 */
-    public static BaseInventoryScreen baseInventoryScreen() {
-        if (baseInventoryScreen == null) baseInventoryScreen = load("gui/base_inventory_screen.json", BaseInventoryScreen.class);
-        return baseInventoryScreen;
     }
 
     /** @return 装配界面布局 */
@@ -134,6 +138,12 @@ public final class Layouts {
     private static <T> T load(String path, Class<T> clazz) {
         ResourceManager rm = resourceManagerSupplier.get();
         if (rm == null) {
+            // 服务端：回落 Java 默认值（本类的不变式见类文档）。每个路径只记一次，让
+            // "某个布局值被服务端逻辑读到"这类问题能被诊断出来；开发环境 logLevel=DEBUG 所以看得见。
+            if (SERVER_FALLBACK_LOGGED.add(path)) {
+                ColdWeaponCraftsmanship.LOGGER.debug(
+                        "布局 '{}' 在服务端不可用（资源管理器只在客户端注入），已回落 Java 默认值", path);
+            }
             return newDefault(clazz);   // 服务端不渲染 GUI：槽位坐标无意义，也不该触碰客户端资源
         }
         ResourceLocation loc = ResourceLocation.fromNamespaceAndPath(ColdWeaponCraftsmanship.MODID, path);
@@ -155,10 +165,11 @@ public final class Layouts {
     }
 
     /** 通过无参构造器创建默认布局实例 */
-    @SuppressWarnings("unchecked")
     private static <T> T newDefault(Class<T> clazz) {
         try {
-            return (T) clazz.getDeclaredConstructor().newInstance();
+            // Class<T>.getDeclaredConstructor 已经返回 Constructor<T>，newInstance() 就是 T——
+            // 原本这里有个 (T) 强转 + @SuppressWarnings("unchecked")，两者都是多余的（IDE 也会报）
+            return clazz.getDeclaredConstructor().newInstance();
         } catch (Exception e) {
             throw new RuntimeException("Layout class missing no-arg constructor: " + clazz, e);
         }
@@ -184,12 +195,6 @@ public final class Layouts {
     public static class ButtonDef {
         public int x_offset, y_offset, width, height;
         public ButtonDef() {}
-    }
-
-    /** 标签文字的位置和颜色 */
-    public static class LabelDef {
-        public int x_offset, y_offset, color;
-        public LabelDef() {}
     }
 
     // ──── 制造界面（容器侧）── 槽位坐标与物品栏布局 ────
@@ -252,15 +257,6 @@ public final class Layouts {
         public int hotbar_gap = 4;
     }
 
-    // ──── 物品栏基础界面 ────
-
-    public static class BaseInventoryScreen {
-        public double item_scale_numerator = 14.0;
-        public double item_scale_denominator = 16.0;
-        public double item_offset_x = 1.0;
-        public double item_offset_y = 1.0;
-    }
-
     // ──── 组装界面 ────
 
     public static class AssemblingScreenLayout {
@@ -279,12 +275,10 @@ public final class Layouts {
             slot_list.scrollbar_width = 6;
             slot_list.frame.x_offset = 2;
             slot_list.frame.y_offset = 2;
-            slot_list.frame.size = 18;
             slot_list.info.x_offset = 23;
-            slot_list.info.y_offset = 5;
-            slot_list.info.size = 12;
-            slot_list.info.hover_color = 0x40FFFFFF;
-            slot_list.text.x_offset = 37;
+            slot_list.info.y_offset = 4;
+            slot_list.info.size = 16;
+            slot_list.text.x_offset = 41;
             slot_list.text.y_offset = 7;
         }
     }
@@ -304,15 +298,15 @@ public final class Layouts {
         public SlotListDef() {}
     }
 
-    /** 物品框 */
+    /** 物品框——只用到两个偏移（框体尺寸由贴图与槽位原生 18px 决定） */
     public static class FrameDef {
-        public int x_offset, y_offset, size;
+        public int x_offset, y_offset;
         public FrameDef() {}
     }
 
-    /** 详情控件 */
+    /** 详情控件——键体由原版九宫格精灵画，悬停态由原版给，所以没有颜色字段 */
     public static class InfoDef {
-        public int x_offset, y_offset, size, hover_color;
+        public int x_offset, y_offset, size;
         public InfoDef() {}
     }
 
