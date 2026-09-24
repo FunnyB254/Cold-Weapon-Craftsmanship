@@ -126,13 +126,14 @@ public class CrosshairIndicators {
         // 就绪度 = 1 - 副手独立冷却占比（1 可攻击，0 刚出刀）；partial tick 固定 0（与原版 getAttackStrengthScale(0.0F) 一致）
         float ready = CwcCombat.offhandReadiness(player);
         int x = gui.guiWidth() / 2 - 8;      // 16 宽居中于准星
-        // 位置与主手那条成**镜像**：主手取"准星下方 9px 为顶点、就绪时往下长"，
-        // 副手取"到准星距离相同、就绪时往上长"——于是两者离准星一样近。
-        // 镜面用准星精灵**自身**的中心行（精灵 15 高、顶行 (h-15)/2 → 中心行 (h-15)/2 + 7；
-        // 不用 h/2，因为精灵并未以 h/2 为对称中心，差 1px）。
-        // 故副手满格图标的顶 = 2×中心行 − (主手图标顶 h/2+9) − 15（镜像一个 16 高的区间）。
+        // 满格图标：顶点锚定 h/2-24，底边几乎贴着准星上沿（位置**刻意不动**——只调冷却条）。
+        int iconY = gui.guiHeight() / 2 - 24;
+        // 冷却条(16×4)：取主手那条的**镜像**，于是它离准星的距离与主手那条一致
+        // （主手条顶 h/2+9、高 4 → 镜像顶 = 2×中心行 − (h/2+9) − 3，3 即 4-1）。
+        // 镜面用准星精灵**自身**的中心行（精灵 15 高、顶行 (h-15)/2 → 中心行 (h-15)/2 + 7）：
+        // 精灵并不以 h/2 为对称中心，用 h/2 会差一行。
         final int crosshairCenterRow = (gui.guiHeight() - 15) / 2 + 7;
-        int y = 2 * crosshairCenterRow - (gui.guiHeight() / 2 + 9) - 15;
+        int barY = 2 * crosshairCenterRow - (gui.guiHeight() / 2 + 9) - 3;
         RenderSystem.enableBlend();
         RenderSystem.blendFuncSeparate(
                 GlStateManager.SourceFactor.ONE_MINUS_DST_COLOR,
@@ -144,12 +145,10 @@ public class CrosshairIndicators {
         boolean canHit = ready >= 1.0F && CwcCombat.hasAnyAttackableTarget(player, off, InteractionHand.OFF_HAND,
                 mc.hitResult instanceof EntityHitResult ehr ? ehr.getEntity() : null);
         if (canHit) {
-            gui.blitSprite(OFFHAND_INDICATOR_FULL, x, y, 16, 16);
+            gui.blitSprite(OFFHAND_INDICATOR_FULL, x, iconY, 16, 16);
         } else if (ready < 1.0F) {
-            // 冷却条(16×4)与满格图标**底边对齐**（图标 16 高、条 4 高 → y+12）：
-            // 就绪时图标是从这条条**往上**长，与主手"往下长"成镜像
-            gui.blitSprite(OFFHAND_INDICATOR_BACKGROUND, x, y + 12, 16, 4);
-            gui.blitSprite(OFFHAND_INDICATOR_PROGRESS, 16, 4, 0, 0, x, y + 12, (int) (ready * 17.0F), 4);
+            gui.blitSprite(OFFHAND_INDICATOR_BACKGROUND, x, barY, 16, 4);
+            gui.blitSprite(OFFHAND_INDICATOR_PROGRESS, 16, 4, 0, 0, x, barY, (int) (ready * 17.0F), 4);
         }
         RenderSystem.defaultBlendFunc();
         RenderSystem.disableBlend();
