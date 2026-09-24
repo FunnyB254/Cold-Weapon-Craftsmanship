@@ -16,10 +16,9 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
  *   <li>渲染底层背景贴图（由 InventoryLayout 指定纹理和尺寸）</li>
  *   <li>物品渲染走原版默认——在所有界面（工匠台、背包、创造物品栏）中显示一致</li>
  *   <li>不渲染原版标题文字（由子类自行绘制）</li>
- *   <li>实现 CwcScreen——自动隐藏 HUD 和手持物品</li>
  * </ul>
  */
-public class BaseInventoryScreen<T extends AbstractContainerMenu> extends AbstractContainerScreen<T> implements CwcScreen {
+public class BaseInventoryScreen<T extends AbstractContainerMenu> extends AbstractContainerScreen<T> {
 
     protected final InventoryLayout layout;
 

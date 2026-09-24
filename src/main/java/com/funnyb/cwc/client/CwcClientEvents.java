@@ -11,7 +11,6 @@ import com.funnyb.cwc.network.serverbound.CwcMainHandAttackPacket;
 import com.funnyb.cwc.network.serverbound.CwcOffhandAttackPacket;
 import com.funnyb.cwc.registry.CwcDataComponents;
 import com.funnyb.cwc.registry.CwcItems;
-import com.funnyb.cwc.screen.CwcScreen;
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 
@@ -27,6 +26,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.EntityHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -34,9 +34,7 @@ import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.InputEvent;
 import net.neoforged.neoforge.client.event.RegisterClientReloadListenersEvent;
-import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.neoforged.neoforge.client.event.RenderGuiLayerEvent;
-import net.neoforged.neoforge.client.event.RenderHandEvent;
 import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
 import net.neoforged.neoforge.network.PacketDistributor;
 
@@ -44,32 +42,15 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * CWC 客户端事件处理器。负责四件事：
+ * CWC 客户端事件处理器。负责三件事：
  * 1. 攻击输入拦截——主手 CWC 武器左键、副手短刀右键，改走自研攻击包（见 {@link #onAttackKey} / {@link #onUseKey}）
  * 2. 按住键自动攻击——每 tick 补一次出手（见 {@link #onClientTick}）
- * 3. CWC 界面打开时隐藏原版 HUD 和手持物品
- * 4. 准星层接管自画攻击指示器；资源重载时刷新 Layouts 缓存与武器合成缓存
+ * 3. 准星层接管自画攻击指示器；资源重载时刷新 Layouts 缓存与武器合成缓存
  * <p>
  * （PartRegistry 由服务端 datapack 加载，客户端不重载，理由见 {@link #onRegisterReloadListeners}。）
  */
 @EventBusSubscriber(modid = ColdWeaponCraftsmanship.MODID, value = Dist.CLIENT)
 public class CwcClientEvents {
-
-    /** 若当前屏幕是 CWC 界面，取消手持物品的渲染 */
-    @SubscribeEvent
-    public static void onRenderHand(RenderHandEvent event) {
-        if (Minecraft.getInstance().screen instanceof CwcScreen) {
-            event.setCanceled(true);
-        }
-    }
-
-    /** 若当前屏幕是 CWC 界面，取消 HUD（血量、饥饿度、快捷栏等）的渲染 */
-    @SubscribeEvent
-    public static void onRenderGui(RenderGuiEvent.Pre event) {
-        if (Minecraft.getInstance().screen instanceof CwcScreen) {
-            event.setCanceled(true);
-        }
-    }
 
     /**
      * 资源重载（F3+T）后刷新 Layouts 缓存、清空武器合成缓存（含顶点网格与动态纹理）。
@@ -208,11 +189,22 @@ public class CwcClientEvents {
     }
 
     /**
-     * 准星是否命中一个**非空气方块**。
+     * 准星是否**指着一个方块**（模式锁的落锁依据）。
+     * <p>
+     * 必须判 {@code getType() == BLOCK}，不能只判 {@code instanceof BlockHitResult}——**"空挥"也是一个
+     * BlockHitResult**：原版拾取没打中任何方块时返回 {@code BlockHitResult.miss(端点, ..., BlockPos.containing(端点))}，
+     * 类型是 MISS，但里面揣着**射线末端那个方块的坐标**（端点 = 眼睛 + 视线 × 手长）。
+     * 而拾取用的 {@code ClipContext.Fluid.NONE} 让射线**穿过水**，所以水下挥砍时端点必然泡在水里，
+     * 水的方块状态又不是空气——只判 {@code instanceof} 的话，水下会被误判成"指着方块"，
+     * 整个按住期间锁成"只挖掘"，点击与按住两条出手路径全被挡掉（表现为水下挥砍完全不出手、无音效）。
+     * 同理适用于草丛/花/藤蔓这类没有碰撞箱、射线会穿过去的非空气方块。
+     * <p>
+     * {@code isAir} 那句保留：与 {@code Minecraft.startAttack} 里的原版判断同口径。
      */
     private static boolean isMiningTarget(Minecraft mc) {
         if (mc.level == null) return false;
         return mc.hitResult instanceof BlockHitResult bhr
+                && bhr.getType() == HitResult.Type.BLOCK
                 && !mc.level.getBlockState(bhr.getBlockPos()).isAir();
     }
 

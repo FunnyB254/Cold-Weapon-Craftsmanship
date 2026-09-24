@@ -329,12 +329,30 @@ public final class CwcCombat {
         Vec3 preMove = target.getDeltaMovement();
         float previousHealth = target instanceof LivingEntity living ? living.getHealth() : 0.0F;
 
+        // 冲刺击退（"冲刺 + 满蓄力"这一档）：**主副手都给**（作者 2026-09-20 定）。
+        //   主手照原版 Player.attack:1243 —— 冲刺 且 攻速条 >0.9（满蓄力）；
+        //   副手没有原版语义可对齐，且它的"充能"本来就由短刀自己的冷却（cwc:offhand_cooldown）把关，
+        //   所以只判冲刺，**不去读主手那根攻速条**——否则刚砍完主手就出副手刀时会拿不到这 +1，
+        //   副手的手感会被主手节奏牵连（副手整套设计的初衷就是两把刀各走各的冷却）。
+        // 与原版一致，这一声**在 hurt 之前**就播（哪怕这一下最终被无敌帧吃掉）。
+        boolean sprintKnockback = player.isSprinting()
+                && (hand == InteractionHand.OFF_HAND || player.getAttackStrengthScale(0.5F) > 0.9F);
+        if (sprintKnockback && damage > 0.0F) {
+            level.playSound(null, player.getX(), player.getY(), player.getZ(),
+                    SoundEvents.PLAYER_ATTACK_KNOCKBACK, player.getSoundSource(), 1.0F, 1.0F);
+        }
+
         if (damage > 0.0F && target.hurt(source, damage)) {
-            // 击退：主手读玩家 ATTACK_KNOCKBACK 属性；副手读武器自身修正（与 resolveReach 同思路）
-            double knockback = (hand == InteractionHand.MAIN_HAND)
-                    ? player.getAttributeValue(Attributes.ATTACK_KNOCKBACK)
-                    : stackAttributeModifier(weapon, Attributes.ATTACK_KNOCKBACK);
-            if (knockback > 0.0 && target instanceof LivingEntity living) {
+            // 击退：复刻原版 Player.attack:1292 的合成，见 BUG-033——
+            //   主手 = 玩家 ATTACK_KNOCKBACK 属性（已含主手武器自身修正）+ 击退附魔 + 冲刺 +1；
+            //   副手 = 武器自身修正（不读玩家属性，与 resolveReach 同思路）+ **副手那把刀自己**的击退附魔 + 冲刺 +1。
+            // 附魔取的是"造成这次伤害的那件物品"（原版语义）：主手刀走主手、短刀走副手，两者不互相借用。
+            float baseKnockback = (hand == InteractionHand.MAIN_HAND)
+                    ? (float) player.getAttributeValue(Attributes.ATTACK_KNOCKBACK)
+                    : (float) stackAttributeModifier(weapon, Attributes.ATTACK_KNOCKBACK);
+            float knockback = EnchantmentHelper.modifyKnockback(level, weapon, target, source, baseKnockback)
+                    + (sprintKnockback ? 1.0F : 0.0F);
+            if (knockback > 0.0F && target instanceof LivingEntity living) {
                 living.knockback(
                         knockback * 0.5,
                         Math.sin(player.getYRot() * Math.PI / 180.0),
