@@ -456,7 +456,7 @@ false 会让滚轮在面板上直接切快捷栏——那是行为变化，不�
 | ARCH-2 | **装配树被遍历四遍，且顺序不一致**（`WeaponStats` 迭代 map，另三处迭代 `type.slots()`） | **已根治**：新增 `crafting/AssemblyTree`——一次 DFS、**槽位声明序**，属性/普攻方式/副手标记/渲染项全部由它派生。**注意：目前每种类型最多一个可装零件的槽，所以两种顺序看不出差别；但一旦出现第二个同类槽（如"副刃"），旧实现会让渲染画出的刃与贡献数值的刃不是同一把** |
 | ARCH-3 | **“能不能打中”无单一权威**：几何、冷却、目标合法性在两端各实现一遍 | **部分解决**：主副手合并到 `CwcCombat.resolveValidTarget`；客户端点选改走 `canHitTarget`（与服务端结算同源）。冷却仍有两档（客户端手动 0.9 / 自动 1.0，服务端含容差），那是 BUG-013 讨论的固有代价 |
 | ARCH-4 | 三套数据生命周期并存（DeferredRegister / `PartRegistry` 静态单例 / `Layouts` 客户端缓存，服务端拿硬编码默认值） | **未处理**——取决于仍未决的"是否支持多人"。专用服务器上客户端 `PartRegistry` 为空，制造台列表空、装配台 0 行、武器贴图只画出底座 |
-| ARCH-5 | `CwcClientEvents` 是 595 行上帝类，握 8 个无重置入口的静态可变字段 | **未处理**。风险 > 收益：里面是好几个刚调好的手感和经验常数。本轮已削掉它一部分职责（`mainHandSettled` 的比较语义修好、模式锁的落锁时机理清）。**2026-09-24 又减两块**：作者定删掉"界面打开时隐藏 HUD 与手持物品"——原版本就不隐藏（`GameRenderer.java:1079` 无条件调 `gui.render`；手部渲染的守卫在 `:951-954`，只判第一人称/睡觉/`hideGui`/旁观，**两处都没有 screen 判断**），原版容器界面之所以看起来没有 HUD 是被自己的全屏模糊背板盖住的；连带删掉只服务于这两个 handler 的 `screen/CwcScreen` |
+| ARCH-5 | `CwcClientEvents` 是 438 行上帝类，握 8 个无重置入口的静态可变字段 | **部分处理**。风险 > 收益：剩下的是好几个刚调好的手感和经验常数。已削掉的职责：`mainHandSettled` 的比较语义修好、模式锁的落锁时机理清（2026-09-17）；删掉"界面打开时隐藏 HUD 与手持物品"——原版本就不隐藏（`GameRenderer.java:1079` 无条件调 `gui.render`；手部渲染的守卫在 `:951-954`，只判第一人称/睡觉/`hideGui`/旁观，**两处都没有 screen 判断**），原版容器界面之所以看起来没有 HUD 是被自己的全屏模糊背板盖住的（2026-09-24，连带删掉只服务于这两个 handler 的 `screen/CwcScreen`）；**抽出准星与攻击指示器**到 `client/renderer/CrosshairIndicators`（595 → 460）、**主副手点选合并**为 `CwcCombat.pickAttackTargetId`（460 → 438）。**剩余**：三台状态机（模式锁 / 主手身份 / 副手挂起）各自成类 + 聚合式重置（整体替换 `Machines`，让"忘记加进 reset"在构造上不可能）+ 两个出手驱动抽类——设计与 **12 条搬运陷阱**见 `tmp/SPLIT-DESIGN.md` |
 | ARCH-6 | 客户端**模拟原版/服务端状态机**并用魔数兜底（`WEAPON_SETTLE_TICKS`、`SERVER_COOLDOWN_TOLERANCE_TICKS`；`offhandAutoSuspended` 复刻 `startUseItem` 内部状态机） | **部分**：已给 `offhandAutoSuspended` 加显著注释标明这是对原版实现细节的依赖。两个魔数保留（见 BUG-013） |
 | ARCH-7 | 战斗数值全硬编码（`Config` 是空 builder），与"数值交给数据"的 JSON 哲学自相矛盾 | **未处理**——按"当前主要目标是手感打磨与 bug 修复"的判断推迟：它既不是手感也不是 bug |
 
@@ -469,7 +469,7 @@ false 会让滚轮在面板上直接切快捷栏——那是行为变化，不�
 | `PartRegistry.scan` 丢命名空间 | id 不带命名空间前缀（既有设计，为让 id 与 lang key 简短），代价是不同命名空间的同名路径撞成同一 id，而**胜负取决于集合迭代顺序、静默不确定**。另外外层按命名空间循环是多余的（`listResources` 本身已返回全部命名空间的结果），还把循环变量当成了资源自己的命名空间 | **已修**：去掉多余循环，id 改在 `scan` 内算好；冲突改为**记 ERROR 并保留先出现的一份**——显式且确定 |
 | `Layouts` 服务端回落硬编码默认值 | 把"双端可能不一致"制度化了 | **已加固（文档 + 诊断，非结构改动）**：类文档写明调用方不变式（布局值只能影响客户端渲染/交互，不能进服务端逻辑），服务端回落分支加每路径一次的 DEBUG 日志。**没有重构**——当前风险是"按构造即无害"（槽位坐标不上网络，两端各自构造菜单、只有客户端那份用于渲染），为它重构属过度设计 |
 
-**仍未处理**：`libs/` 与 `build.gradle` 不一致（新克隆跑不了 `runClient`；`libs/` 里有 sodium/lithium 却未被 build 引用）、`CwcClientEvents` 上帝类拆分、包结构按名词分包、两种事件注册风格并存、JavaDoc 路径笔误、`Config` 配置化。**前四条里，除 `libs/` 外都判定收益 < 风险**，留作规模上来再说。
+**仍未处理**：`libs/` 与 `build.gradle` 不一致（新克隆跑不了 `runClient`；`libs/` 里有 sodium/lithium 却未被 build 引用）、`CwcClientEvents` 上帝类拆分（**已做一半**，剩余项与设计见 ARCH-5 与 `tmp/SPLIT-DESIGN.md`）、包结构按名词分包、两种事件注册风格并存、JavaDoc 路径笔误、`Config` 配置化。**前四条里，除 `libs/` 外都判定收益 < 风险**，留作规模上来再说。
 
 ## 2026-09-17 零件定义迁移为 datapack registry（不是 bug，是结构性变更）
 
