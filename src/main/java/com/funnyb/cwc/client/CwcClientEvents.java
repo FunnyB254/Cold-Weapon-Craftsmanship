@@ -15,7 +15,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.server.packs.resources.ResourceManagerReloadListener;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.BlockHitResult;
@@ -162,22 +161,9 @@ public class CwcClientEvents {
         if (!mainHandSettled(player)) return;   // 刚换过武器：等服务端属性追平，否则这一下会被服务端拒收
         if (!CwcCombat.isCooldownReady(player, InteractionHand.MAIN_HAND, stack, minScale)) return;
 
-        // 客户端点选目标，发主手攻击包（-1 空挥）。
-        // 走 canHitTarget 而不是在这里另写一套判定——它和服务端结算同源（横扫=几何+非友军，
-        // 单体=眼到碰撞箱距离），避免客户端选出的目标被服务端判成空挥、或反过来。
-        // 视线不在这里查：mc.hitResult 是带方块遮挡的射线结果，命中实体即天然满足视线。
-        int targetId = -1;
-        if (mc.hitResult instanceof EntityHitResult ehr
-                && CwcCombat.canHitTarget(player, ehr.getEntity(), stack, InteractionHand.MAIN_HAND)) {
-            targetId = ehr.getEntity().getId();
-        } else {
-            // 原版拾取把整条骑乘链从点选里过滤掉了（ProjectileUtil 按根载具比），
-            // 所以"骑在我头上的"永远成不了 mc.hitResult。补一次只针对向上链的点选，
-            // 让"下面的人准星对准时能打到上面的人"成立（见 CwcCombat.pickUpperRideChain）。
-            Entity upper = CwcCombat.pickUpperRideChain(player,
-                    CwcCombat.resolveReach(player, InteractionHand.MAIN_HAND, stack));
-            if (upper != null) targetId = upper.getId();
-        }
+        // 客户端点选目标（-1 空挥）；判定与服务端结算同源，细则与"为什么还要补骑乘链"见 pickAttackTargetId
+        int targetId = CwcCombat.pickAttackTargetId(player, stack, InteractionHand.MAIN_HAND,
+                mc.hitResult instanceof EntityHitResult ehr ? ehr.getEntity() : null);
         PacketDistributor.sendToServer(new CwcMainHandAttackPacket(targetId));
         player.swing(InteractionHand.MAIN_HAND, false);  // 纯本地挥动（不发包）
         player.resetAttackStrengthTicker();              // 本地攻速条/准星指示器同步归零
@@ -435,19 +421,11 @@ public class CwcClientEvents {
         if (CwcWeapon.isTwoHandedStack(player.getMainHandItem())) return false; // 双手武器占用右键
         if (!CwcCombat.isCooldownReady(player, InteractionHand.OFF_HAND, off)) return false; // 副手独立冷却中
 
-        // 客户端点选目标：走 canHitTarget（与服务端结算同源），未命中就空挥（-1）。
-        // 短刀是 normal 型，判定即"眼睛到碰撞箱距离 ≤ 短刀自身 reach"（与主手同款量法，
-        // 避免不同高度下副手距离偏短），且不含友军过滤——单体攻击本就可以打友军，与服务端一致。
-        int targetId = -1;
-        if (mc.hitResult instanceof EntityHitResult ehr
-                && CwcCombat.canHitTarget(player, ehr.getEntity(), off, InteractionHand.OFF_HAND)) {
-            targetId = ehr.getEntity().getId();
-        } else {
-            // 与主手同款补点：短刀也要能打到"骑在我头上的人"（原版拾取把整条骑乘链过滤了）
-            Entity upper = CwcCombat.pickUpperRideChain(player,
-                    CwcCombat.resolveReach(player, InteractionHand.OFF_HAND, off));
-            if (upper != null) targetId = upper.getId();
-        }
+        // 客户端点选目标（-1 空挥）。短刀是 normal 型：判定即"眼睛到碰撞箱距离 ≤ 短刀自身 reach"
+        // （与主手同款量法，避免不同高度下副手距离偏短），且不含友军过滤——单体攻击本就可以打友军，
+        // 与服务端一致。其余细则（含骑乘链补点）见 CwcCombat.pickAttackTargetId。
+        int targetId = CwcCombat.pickAttackTargetId(player, off, InteractionHand.OFF_HAND,
+                mc.hitResult instanceof EntityHitResult ehr ? ehr.getEntity() : null);
         PacketDistributor.sendToServer(new CwcOffhandAttackPacket(targetId));
 
         // 本地先记一次冷却：服务端的 OFFHAND_COOLDOWN 要一个往返才同步回来，不补的话按住右键会在

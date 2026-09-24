@@ -777,6 +777,34 @@ public final class CwcCombat {
         };
     }
 
+    /**
+     * 客户端点选目标 → 目标实体 id（{@code -1} = 空挥）。主手与副手两条出手路径共用，
+     * 与 {@link #canHitTarget} 同源，避免两边各写一套而漂移。
+     * <p>
+     * 两步：① 准星命中的实体若**可命中**就用它；② 否则补一次**向上骑乘链**的点选——
+     * 原版拾取把整条骑乘链从点选里过滤掉了（{@code ProjectileUtil} 按根载具比），
+     * 所以"骑在我头上的"永远成不了准星结果，只能自己补，让"下面的人准星对准时能打到上面的人"成立。
+     * <p>
+     * <b>①与②是"否则"关系，不是"有准星实体就返回"</b>：准星命中实体但 {@link #canHitTarget} 不通过时
+     * （副手短刀刀长不够、横扫目标不满足 {@link #canHarmAlly} 等），仍要回落到②——写成嵌套 if 会静默
+     * 删掉"打骑在自己头上的人"那条路。
+     * <p>
+     * 视线不在这里查：调用方给的 {@code Entity} 来自 {@code mc.hitResult}，那是带方块遮挡的射线结果，
+     * 命中实体即天然满足视线。本类在通用包、不能引用客户端类型，故准星实体由调用方传入
+     * （同 {@link #hasAnyAttackableTarget}）。
+     *
+     * @param crosshairTarget 准星命中的实体，没有则 null
+     * @return 目标实体 id；{@code -1} 表示空挥（服务端据此只进冷却 + 广播挥动）
+     */
+    public static int pickAttackTargetId(Player player, ItemStack weapon, InteractionHand hand, Entity crosshairTarget) {
+        if (crosshairTarget != null && canHitTarget(player, crosshairTarget, weapon, hand)) {
+            return crosshairTarget.getId();
+        }
+        // 原版拾取把整条骑乘链过滤掉了，这里补一次只针对向上链的点选
+        Entity upper = pickUpperRideChain(player, resolveReach(player, hand, weapon));
+        return upper != null ? upper.getId() : -1;
+    }
+
     /** 无敌帧豁免窗口——原版受击保护持续 20 tick，超出这个窗口就与本模组自己的上一次命中无关了 */
     private static final int INVULN_BYPASS_WINDOW_TICKS = 20;
 
