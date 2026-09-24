@@ -126,14 +126,15 @@ public class CrosshairIndicators {
         // 就绪度 = 1 - 副手独立冷却占比（1 可攻击，0 刚出刀）；partial tick 固定 0（与原版 getAttackStrengthScale(0.0F) 一致）
         float ready = CwcCombat.offhandReadiness(player);
         int x = gui.guiWidth() / 2 - 8;      // 16 宽居中于准星
-        // 满格图标：顶点锚定 h/2-24，底边几乎贴着准星上沿（位置**刻意不动**——只调冷却条）。
-        int iconY = gui.guiHeight() / 2 - 24;
-        // 冷却条(16×4)：取主手那条的**镜像**，于是它离准星的距离与主手那条一致
-        // （主手条顶 h/2+9、高 4 → 镜像顶 = 2×中心行 − (h/2+9) − 3，3 即 4-1）。
-        // 镜面用准星精灵**自身**的中心行（精灵 15 高、顶行 (h-15)/2 → 中心行 (h-15)/2 + 7）：
+        // 整条取主手那条关于**准星精灵中心行**的镜像。主手 = 冷却条与满格图标**同顶**于 h/2+9
+        // （原版 renderCrosshair 就是这么画的：`int j = guiHeight/2 - 7 + 16`，图标与条共用 j），
+        // 副手 = 两者同**底**，于是两边在"未满"和"满"两个状态下到准星的距离都一致。
+        // **"同底"是关键**：只让条对齐、图标留在原处（贴着准星上沿）会得到"未满对称、满了跳 2 行"。
+        // 镜面用精灵**自身**的中心行（精灵 15 高、顶行 (h-15)/2 → 中心行 (h-15)/2 + 7）：
         // 精灵并不以 h/2 为对称中心，用 h/2 会差一行。
         final int crosshairCenterRow = (gui.guiHeight() - 15) / 2 + 7;
-        int barY = 2 * crosshairCenterRow - (gui.guiHeight() / 2 + 9) - 3;
+        int barY = 2 * crosshairCenterRow - (gui.guiHeight() / 2 + 9) - 3;   // 条顶 = 镜像主手条顶(h/2+9)
+        int iconY = barY - 12;                                              // 图标 16 高、条 4 高 → 与条底边对齐
         RenderSystem.enableBlend();
         RenderSystem.blendFuncSeparate(
                 GlStateManager.SourceFactor.ONE_MINUS_DST_COLOR,
