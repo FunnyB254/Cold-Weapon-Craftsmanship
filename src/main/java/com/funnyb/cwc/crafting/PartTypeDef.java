@@ -1,5 +1,6 @@
 package com.funnyb.cwc.crafting;
 
+import com.funnyb.cwc.combat.behavior.BehaviorDecl;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
@@ -24,12 +25,16 @@ import java.util.Map;
  * @param layer        渲染优先级（整数/实数），越大越靠上；null 默认 0
  * @param combat       攻击特征（刃型声明攻击范围/击退加成/普攻方式）。null 表示默认无加成
  * @param twoHanded    是否双手武器（handle 底座占用主手右键格挡，屏蔽副手交互）。默认 false
+ *                     —— **已废弃别名**：等价于一条 {@code {hand:"main", button:"use", behavior:"cwc:block", priority:100}}
  * @param offset       整体贴图偏移（像素，渲染时武器整体平移，改变握持位置）。null 表示无偏移
  * @param offhandAttack 刃型是否可副手右键攻击（放在副手时右键出刀）。默认 false
+ *                     —— **已废弃别名**：等价于一条 {@code {hand:"off", button:"use", behavior:"cwc:swing", priority:100}}
+ * @param behaviors    行为声明——"装了我就让某只手某个键位做某件事"。见 {@link BehaviorDecl}。
+ *                     两个布尔字段与它是**别名关系**，在解析时折算（不在 codec 里折叠，否则 NBT 往返会丢）
  */
 public record PartTypeDef(Map<String, String> data, List<SlotDef> slots,
                           Position position, Double layer, CombatStyle combat, boolean twoHanded,
-                          Position offset, boolean offhandAttack) {
+                          Position offset, boolean offhandAttack, List<BehaviorDecl> behaviors) {
 
     /**
      * 缺省值——**用"非空的默认值"而不是 null**。
@@ -60,7 +65,8 @@ public record PartTypeDef(Map<String, String> data, List<SlotDef> slots,
             CombatStyle.CODEC.optionalFieldOf("combat", NO_COMBAT).forGetter(PartTypeDef::combat),
             Codec.BOOL.optionalFieldOf("twoHanded", false).forGetter(PartTypeDef::twoHanded),
             Position.CODEC.optionalFieldOf("offset", NO_POSITION).forGetter(PartTypeDef::offset),
-            Codec.BOOL.optionalFieldOf("offhandAttack", false).forGetter(PartTypeDef::offhandAttack)
+            Codec.BOOL.optionalFieldOf("offhandAttack", false).forGetter(PartTypeDef::offhandAttack),
+            BehaviorDecl.CODEC.listOf().optionalFieldOf("behaviors", List.of()).forGetter(PartTypeDef::behaviors)
     ).apply(instance, PartTypeDef::new));
 
     public String role() {
@@ -102,9 +108,11 @@ public record PartTypeDef(Map<String, String> data, List<SlotDef> slots,
      *                   值是该键允许的取值集合。空表 = 全收
      * @param scale      属性加权系数
      * @param position   槽位在父件贴图上的安装点。null 表示默认 (0,0)
+     * @param behaviors  槽位**代装进来的零件**授予的行为声明（装了才能授予）。空表 = 不授予。
+     *                   装在槽里的零件若声明同一行为且优先级为负，这份授予作废——负优先级的意义所在
      */
     public record SlotDef(String name, Map<String, List<String>> constraint,
-                          Map<String, Double> scale, Position position) {
+                          Map<String, Double> scale, Position position, List<BehaviorDecl> behaviors) {
 
         public static final Codec<SlotDef> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Codec.STRING.fieldOf("name").forGetter(SlotDef::name),
@@ -113,7 +121,8 @@ public record PartTypeDef(Map<String, String> data, List<SlotDef> slots,
                 Codec.unboundedMap(Codec.STRING, Codec.DOUBLE)
                         .optionalFieldOf("scale", Map.of()).forGetter(SlotDef::scale),
                 // 缺省用非空的 (0,0)，不能传 null——DFU 的 Applicative 会对 null 组件 NPE
-                Position.CODEC.optionalFieldOf("position", NO_POSITION).forGetter(SlotDef::position)
+                Position.CODEC.optionalFieldOf("position", NO_POSITION).forGetter(SlotDef::position),
+                BehaviorDecl.CODEC.listOf().optionalFieldOf("behaviors", List.of()).forGetter(SlotDef::behaviors)
         ).apply(instance, SlotDef::new));
 
         /**
