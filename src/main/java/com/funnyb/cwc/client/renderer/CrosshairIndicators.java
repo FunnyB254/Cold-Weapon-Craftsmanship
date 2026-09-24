@@ -117,6 +117,9 @@ public class CrosshairIndicators {
      * 副手短刀攻击指示器（准星上方，内部自管反色混合）：短刀冷却就绪 + 存在可命中目标 → 满格图标；
      * 冷却中即使有目标也只显示就绪度进度条。主手非 CWC 时由 {@link #onCrosshairPost} 调用，
      * 主手 CWC 时由 {@link #onCrosshairPre} 接管调用。
+     * <p>
+     * 位置是主手那条的**镜像**（见下方坐标注释），而三张 sprite 还要**垂直翻转**再画——
+     * 因为它们是给"准星**下方**"设计的、且可见内容在自己的贴图框里并不居中，理由见 {@link #blitFlipped}。
      */
     private static void renderOffhandIndicator(GuiGraphics gui, Player player) {
         Minecraft mc = Minecraft.getInstance();
@@ -146,13 +149,46 @@ public class CrosshairIndicators {
         boolean canHit = ready >= 1.0F && CwcCombat.hasAnyAttackableTarget(player, off, InteractionHand.OFF_HAND,
                 mc.hitResult instanceof EntityHitResult ehr ? ehr.getEntity() : null);
         if (canHit) {
-            gui.blitSprite(OFFHAND_INDICATOR_FULL, x, iconY, 16, 16);
+            blitFlipped(gui, OFFHAND_INDICATOR_FULL, 16, 16, x, iconY, 16);
         } else if (ready < 1.0F) {
-            gui.blitSprite(OFFHAND_INDICATOR_BACKGROUND, x, barY, 16, 4);
-            gui.blitSprite(OFFHAND_INDICATOR_PROGRESS, 16, 4, 0, 0, x, barY, (int) (ready * 17.0F), 4);
+            blitFlipped(gui, OFFHAND_INDICATOR_BACKGROUND, 16, 4, x, barY, 16);
+            blitFlipped(gui, OFFHAND_INDICATOR_PROGRESS, 16, 4, x, barY, (int) (ready * 17.0F));
         }
         RenderSystem.defaultBlendFunc();
         RenderSystem.disableBlend();
+    }
+
+    /**
+     * 把 sprite **垂直翻转**后画在 (x, y)（1:1）：逐行倒序 blit —— 第 {@code row} 行取贴图的第
+     * {@code texHeight-1-row} 行。
+     * <p>
+     * <b>为什么要翻</b>：原版这三张 sprite 是给"准星<b>下方</b>"设计的，而且**可见内容在自己的贴图框里并不居中**——
+     * 16×4 的条内容在第 1–2 行（第 0/3 行只有 x=3 一个像素，近似居中），16×16 的满格图标内容只占第 0–6 行、
+     * 下面 9 行**全透明**（顶对齐）。副手这条要画在准星<b>上方</b>：不翻的话条的近似没问题，但满格图标的
+     * 可见内容会浮在离准星 11 行处——按框算出的"2 行"对不上看得见的图，表现为"图标高出一截"。
+     * 翻过来之后内容落到底部，两个状态的**可见部分**才都和主手一样离准星 2 行。
+     * <p>
+     * <b>为什么不换别的办法</b>（三条都核过源码）：
+     * <ul>
+     *   <li>{@code pose().scale(1,-1,1)} 会反转绕序 → 背面剔除，而 HUD 渲染期间 cull 是**开着**的
+     *       （{@code Minecraft} 每帧 {@code RenderSystem.enableCull()}；{@code RenderType.GUI} 不动剔除状态，
+     *       且 sprite 路径不经 {@code RenderType}，是 {@code BufferUploader.drawWithShader} 直接用环境 GL 状态）
+     *       → 得额外 bracket 全局 GL 状态；</li>
+     *   <li>负 {@code vHeight}：{@code blitSprite} 内部让 vHeight **同时进几何**（{@code y + vHeight}）
+     *       → 图会被画到框上方，绕序同样反转；</li>
+     *   <li>自备翻转贴图：要往 jar 里塞派生自原版的 png。</li>
+     * </ul>
+     * 逐行倒序只动 UV：几何与绕序都不变，也不需要任何 GL 状态。
+     *
+     * @param texWidth  sprite 自身的宽（同 {@code blitSprite} 的同名参数）
+     * @param texHeight sprite 自身的高，也即要画出的行数（本类三处都是 1:1 画）
+     * @param uWidth    要画的宽度，单位为 sprite 内像素（同 {@code blitSprite} 的 uWidth）
+     */
+    private static void blitFlipped(GuiGraphics gui, ResourceLocation sprite,
+                                    int texWidth, int texHeight, int x, int y, int uWidth) {
+        for (int row = 0; row < texHeight; row++) {
+            gui.blitSprite(sprite, texWidth, texHeight, 0, texHeight - 1 - row, x, y + row, uWidth, 1);
+        }
     }
 
     /**
