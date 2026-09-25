@@ -3,9 +3,10 @@ package com.funnyb.cwc.client;
 import com.funnyb.cwc.ColdWeaponCraftsmanship;
 import com.funnyb.cwc.client.renderer.AssembledWeaponRenderer;
 import com.funnyb.cwc.combat.CwcCombat;
+import com.funnyb.cwc.combat.behavior.BehaviorDispatch;
+import com.funnyb.cwc.combat.behavior.Button;
+import com.funnyb.cwc.combat.behavior.WeaponBehavior;
 import com.funnyb.cwc.crafting.PartNode;
-import com.funnyb.cwc.crafting.PartTypeDef;
-import com.funnyb.cwc.item.CwcWeapon;
 import com.funnyb.cwc.layout.Layouts;
 import com.funnyb.cwc.network.serverbound.CwcMainHandAttackPacket;
 import com.funnyb.cwc.network.serverbound.CwcOffhandAttackPacket;
@@ -15,6 +16,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.server.packs.resources.ResourceManagerReloadListener;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.BlockHitResult;
@@ -31,6 +33,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * CWC 客户端事件处理器。负责两件事：
@@ -369,24 +372,27 @@ public class CwcClientEvents {
             } else if (sawOffhandUse) {
                 offhandAutoSuspended = false;
             }
-            if (!offhandAutoSuspended) tryOffhandAttack(mc, player);
+            if (!offhandAutoSuspended) tryBehaviorUse(mc, player, InteractionHand.OFF_HAND);
         } else {
             offhandAutoSuspended = false;
         }
     }
 
     /**
-     * 副手短刀右键攻击——目标判定在客户端（手感与瞄准一致）。
-     * 右键（keyUse）在副手触发点、且副手是短刀武器时：取消原版右键动作（不发 use 包、不触发方块/实体交互），
-     * 用客户端 {@link Minecraft#hitResult} 点选目标实体，发 {@link CwcOffhandAttackPacket}（带目标实体 id）
-     * 给服务端权威执行伤害/冷却。空挥（无实体目标）发 -1，服务端仅进冷却 + 广播挥动。
-     * 未接管（非短刀/主手双手武器/冷却中）时放行原版流程——原版 useItem 也会因 isOnCooldown 直接 pass。
+     * 副手右键——目标判定在客户端（手感与瞄准一致）。
+     * 右键（keyUse）在副手触发点、且副手那件武器在这一手声明了行为时：取消原版右键动作
+     * （不发 use 包、不触发方块/实体交互），用客户端 {@link Minecraft#hitResult} 点选目标实体，
+     * 发 {@link CwcOffhandAttackPacket}（带目标实体 id）给服务端权威执行。空挥（无实体目标）发 -1，
+     * 服务端仅进冷却 + 广播挥动。
+     * <p>
+     * 未接管（不是本模组武器 / 这一手没声明行为 / 主手武器占用右键 / 冷却中）时放行原版流程——
+     * 原版 useItem 也会因 isOnCooldown 直接 pass。
      * <p>
      * 原版按住右键时本事件**每 ~5 tick 就会再来一次**：{@code handleKeybinds} 里
      * {@code keyUse.isDown() && rightClickDelay == 0 && !isUsingItem()} 会每 tick 调 {@code startUseItem}，
      * 而它正是在这里 post 本事件。所以副手本就能"按住连发"，只是节奏被 {@code rightClickDelay}
      * 量化成 5 tick 一档。补上 {@link #onClientTick} 的每 tick 驱动后按真实冷却出手，
-     * 与这条路径重复的那次由 {@link #tryOffhandAttack} 里的本地冷却挡住。
+     * 与这条路径重复的那次由行为自己的冷却挡住（{@code SwingBehavior.onClientUse}）。
      */
     @SubscribeEvent
     public static void onUseKey(InputEvent.InteractionKeyMappingTriggered event) {
@@ -400,39 +406,60 @@ public class CwcClientEvents {
         sawOffhandUse = true;
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
-        if (!tryOffhandAttack(mc, mc.player)) return;              // 未接管 → 放行原版
+        if (!tryBehaviorUse(mc, mc.player, InteractionHand.OFF_HAND)) return;   // 未接管 → 放行原版
 
         event.setCanceled(true);
         // 不让 startUseItem 默认挥动（LocalPlayer.swing 会发 ServerboundSwingPacket，
         // 服务端 handleAnimate → player.swing → ServerPlayer.swing 会 resetAttackStrengthTicker
-        // 把主手攻击强度清零）。本地挥动已在 tryOffhandAttack 内完成（swing(hand,false) 不发包）。
+        // 把主手攻击强度清零）。本地挥动已在 tryBehaviorUse 内完成（swing(hand,false) 不发包）。
         event.setSwingHand(false);
     }
 
     /**
-     * 副手出刀一次——冷却就绪且确为短刀才出手。事件回调与每 tick 自动攻击（{@link #onClientTick}）共用。
+     * 右键出手一次——问"这只手此刻胜出的行为"，它说接管就发包并本地挥动。
+     * <p>
+     * 事件回调（点击）与每 tick 自动攻击（按住）**共用这一个方法**：两条路径的差别只在调用方
+     * （点击那条还要取消原版动作），行为侧完全一致，所以行为接口没有分开的"自动"入口。
+     * <p>
+     * 前置判断分两层，别混：**这里**管输入层（划船中禁止交互、这一手有没有行为），
+     * **行为自己**管"此刻能不能出手"（冷却门槛）。
      *
      * @return 是否接管了本次右键（true = 已发包并本地挥动，调用方应取消原版动作）
      */
-    private static boolean tryOffhandAttack(Minecraft mc, Player player) {
-        ItemStack off = player.getOffhandItem();
-        if (handsBusy(player)) return false;                                   // 划船中按着移动键：原版禁止交互
-        if (!CwcWeapon.isOffhandKnife(off)) return false;                       // 副手不是短刀
-        if (CwcWeapon.isTwoHandedStack(player.getMainHandItem())) return false; // 双手武器占用右键
-        if (!CwcCombat.isCooldownReady(player, InteractionHand.OFF_HAND, off)) return false; // 副手独立冷却中
+    private static boolean tryBehaviorUse(Minecraft mc, Player player, InteractionHand hand) {
+        if (handsBusy(player)) return false;                       // 划船中按着移动键：原版禁止交互
+        BehaviorDispatch.Resolved resolved = BehaviorDispatch.resolve(player, hand);
+        if (resolved == null) return false;                        // 这一手没有行为 → 放行原版
+        Entity crosshair = mc.hitResult instanceof EntityHitResult ehr ? ehr.getEntity() : null;
+        Optional<WeaponBehavior.UseIntent> intent = resolved.behavior().onClientUse(new WeaponBehavior.ClientUse(
+                resolved.field(), player, hand, resolved.stack(), crosshair, resolved.decl()));
+        if (intent.isEmpty()) return false;                        // 行为说此刻不能出手 → 放行原版
+        if (!sendIntent(intent.get())) return false;               // 这一（手 × 键位）还没有协议 → 放行原版
 
-        // 客户端点选目标（-1 空挥）。短刀是 normal 型：判定即"眼睛到碰撞箱距离 ≤ 短刀自身 reach"
-        // （与主手同款量法，避免不同高度下副手距离偏短），且不含友军过滤——单体攻击本就可以打友军，
-        // 与服务端一致。其余细则（含骑乘链补点）见 CwcCombat.pickAttackTargetId。
-        int targetId = CwcCombat.pickAttackTargetId(player, off, InteractionHand.OFF_HAND,
-                mc.hitResult instanceof EntityHitResult ehr ? ehr.getEntity() : null);
-        PacketDistributor.sendToServer(new CwcOffhandAttackPacket(targetId));
-
-        // 本地先记一次冷却：服务端的 OFFHAND_COOLDOWN 要一个往返才同步回来，不补的话按住右键会在
-        // 空窗期每 tick 重发包，准星指示器也会滞后一 tick。数值与服务端 CwcCombat.applyCooldown 同源。
-        player.getCooldowns().addCooldown(CwcItems.OFFHAND_COOLDOWN.get(), CwcCombat.offhandCooldownTicks(off));
-        player.swing(InteractionHand.OFF_HAND, false);   // 纯本地挥动，不发包（主副手解耦）
+        player.swing(hand, false);   // 纯本地挥动，不发包（主副手解耦）
         return true;
+    }
+
+    /**
+     * 把出手意图发到服务端——**协议适配层**。
+     * <p>
+     * 今天只有两个包，对应两条已经存在的路径：副手右键（用）与主手普攻（攻击）。所以（手 × 键位）里
+     * 只有这两种组合发得出去；数据结构上支持、但协议还没到的情况（例如把瞬发行为挂在
+     * {@code mainHandUse} 上）返回 false，调用方据此放行原版、不接管。要支持它就得加一个包，
+     * **这一处是唯一要改的地方**。
+     *
+     * @return 是否真的发出去了
+     */
+    private static boolean sendIntent(WeaponBehavior.UseIntent intent) {
+        if (intent.hand() == InteractionHand.OFF_HAND && intent.button() == Button.USE) {
+            PacketDistributor.sendToServer(new CwcOffhandAttackPacket(intent.targetId()));
+            return true;
+        }
+        if (intent.hand() == InteractionHand.MAIN_HAND && intent.button() == Button.ATTACK) {
+            PacketDistributor.sendToServer(new CwcMainHandAttackPacket(intent.targetId()));
+            return true;
+        }
+        return false;
     }
 
 }

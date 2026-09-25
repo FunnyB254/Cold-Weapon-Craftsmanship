@@ -1,5 +1,7 @@
 package com.funnyb.cwc.combat.behavior;
 
+import net.minecraft.world.InteractionHand;
+
 /**
  * 行为的三个字段——JSON 里的三个具名键，也是槽位 {@code priority} 表的三个键。
  * <p>
@@ -35,6 +37,15 @@ public enum BehaviorField {
             if (field.jsonName.equals(name)) return field;
         }
         return null;
+    }
+
+    /**
+     * 右键路径的字段——**按手分派**（作者定的"只有在主手时右键会调用，其他亦然"）。
+     * <p>
+     * 攻击字段不在这里：它跟手无关，在哪只手就读同一份（"短刀在副手时用的就是它的 attack"）。
+     */
+    public static BehaviorField useField(InteractionHand hand) {
+        return hand == InteractionHand.MAIN_HAND ? MAIN_HAND_USE : OFF_HAND_USE;
     }
 
     /** 全部合法键名，用于报错消息 */

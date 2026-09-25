@@ -3,11 +3,17 @@ package com.funnyb.cwc.combat.behavior;
 import com.funnyb.cwc.crafting.AssemblyTree;
 import com.funnyb.cwc.crafting.PartTypeDef;
 
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * 行为选择器——"这件武器的每个字段最终听谁的"的**唯一答案来源**。
@@ -29,6 +35,16 @@ import java.util.Map;
  * 一个行为也可以换不同 HUD，而不需要引入任何新机制。（若带 hud 的候选在最高档并列，则 HUD 无胜者、
  * 行为不受影响。）
  *
+ * <h2>旧字段折算的别名（兜底，不是竞争）</h2>
+ * 迁移期间旧数据一个字不改也必须一模一样，于是三条旧声明折算成行为候选：
+ * {@code twoHanded} → {@code mainHandUse = block_use}（外加 {@link #disableOffHand}）、
+ * {@code offhandAttack} → {@code offHandUse = swing_use}、
+ * {@code combat.style} → {@code attack = strike/sweep/critical_attack}。
+ * <p>
+ * 别名**只在整棵树里没有任何显式声明**时才加进候选（见 {@link #addAlias}）。若让它与显式声明一样
+ * 以 0 档参与竞争，两者会**并列成冲突**、把整个字段废掉——新数据只要声明了同一个字段就该完全接管旧字段。
+ * 别名还带上各自的内建 HUD id（旧数据照旧有指示器），这属于"折算成完全等价的 JSON"的一部分。
+ *
  * <h2>不缓存</h2>
  * {@code AssemblyTree.of(stack)} 本来就是随用随建；把解析结果物化到物品上正是 ARCH-1 明令禁止的。
  */
@@ -39,6 +55,10 @@ public final class BehaviorResolver {
     /**
      * 解析整件武器：每个**有胜者**的字段给出一个结果；冲突/无人声明的字段**不在表里**。
      * 键的存在与否就是"这个字段有没有胜者"，调用方不必再判空。
+     * <p>
+     * 本方法只是**把装配树摊成 {@link LevelSpec} 列表**（下标 0 = 整件武器那一层，之后对应
+     * {@code tree.nodes()} 的下标 +1），算法本身在 {@link #resolveLevels} 里——它不依赖物品栈与注册表，
+     * 所以离线检查器能自己造几层数据跑（那几条规则错起来全是静默的）。
      */
     public static Map<BehaviorField, FieldResult> resolve(AssemblyTree tree) {
         PartTypeDef root = tree.rootType();
@@ -47,29 +67,45 @@ public final class BehaviorResolver {
         List<AssemblyTree.Node> nodes = tree.nodes();
         int count = nodes.size();
 
-        // 层 = 类型 + 它的直接子件。nodes() 只有后代，所以根部合成一层当下标 0；
-        // 之后 levels 下标 k 对应 nodes 下标 k-1。
-        List<Level> levels = new ArrayList<>(count + 1);
-        levels.add(new Level(root, tree.rootId(), new ArrayList<>()));
-        for (AssemblyTree.Node node : nodes) {
-            levels.add(new Level(node.type(), node.partId(), new ArrayList<>()));
-        }
+        // children[i] = 第 i 层的直接子件（先按下标收集，再包进不可变的 LevelSpec）
+        List<List<ChildSpec>> children = new ArrayList<>(count + 1);
+        for (int i = 0; i <= count; i++) children.add(new ArrayList<>());
 
-        // 父子关系：DFS 前序里，深度 d 的父就是最近一个深度 d-1 的节点；深度 1 的父是根
+        // 父子关系：DFS 前序里，深度 d 的父就是最近一个深度 d-1 的节点；深度 1 的父是根。
+        // 于是"子件的下标必然大于父件"——这正是自底向上遍历的前提。
         int[] lastAtDepth = new int[Math.max(1, tree.maxDepth() + 1)];
         Arrays.fill(lastAtDepth, -1);
         for (int i = 0; i < count; i++) {
             int depth = nodes.get(i).depth();
             int parentLevel = depth <= 1 ? 0 : lastAtDepth[depth - 1];
-            if (parentLevel >= 0) levels.get(parentLevel).children().add(i + 1);
+            if (parentLevel >= 0) {
+                AssemblyTree.Node node = nodes.get(i);
+                children.get(parentLevel).add(new ChildSpec(i + 1, node.parentSlot(), node.partId()));
+            }
             if (depth < lastAtDepth.length) lastAtDepth[depth] = i + 1;
         }
 
-        // 自底向上：前序里子件排在父件之后，所以倒着遍历时子件的层已经算完了
-        List<Map<BehaviorField, FieldResult>> results = new ArrayList<>(count + 1);
-        for (int i = 0; i <= count; i++) results.add(null);
-        for (int i = count; i >= 0; i--) {
-            results.set(i, resolveLevel(levels.get(i), i == 0, results, nodes, tree));
+        List<LevelSpec> levels = new ArrayList<>(count + 1);
+        levels.add(new LevelSpec(root, tree.rootId(), true, tree.offhandAttack(), tree.attackStyle(), children.get(0)));
+        for (int i = 0; i < count; i++) {
+            AssemblyTree.Node node = nodes.get(i);
+            levels.add(new LevelSpec(node.type(), node.partId(), false, false, null, children.get(i + 1)));
+        }
+        return resolveLevels(levels);
+    }
+
+    /**
+     * 解析算法本体——**只吃 {@link LevelSpec} 列表**，与物品栈、注册表、{@code AssemblyTree} 全都无关。
+     * <p>
+     * 约定：每个子件的下标**大于**它的父件（DFS 前序保证），所以倒着遍历一遍就能自底向上算完
+     * （子件先于父件出结果）。返回下标 0 那一层的表。
+     */
+    static Map<BehaviorField, FieldResult> resolveLevels(List<LevelSpec> levels) {
+        int count = levels.size();
+        List<Map<BehaviorField, FieldResult>> results = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) results.add(null);
+        for (int i = count - 1; i >= 0; i--) {
+            results.set(i, resolveLevel(levels.get(i), results));
         }
         return results.get(0);
     }
@@ -77,6 +113,64 @@ public final class BehaviorResolver {
     /** 便捷：某个字段的胜者；没有（未声明或冲突）返回 null */
     public static FieldResult select(AssemblyTree tree, BehaviorField field) {
         return resolve(tree).get(field);
+    }
+
+    /** 便捷：物品栈上某个字段的胜者 */
+    public static FieldResult select(ItemStack stack, BehaviorField field) {
+        return select(AssemblyTree.of(stack), field);
+    }
+
+    /**
+     * 胜出的**行为实现**——调用方真正要用的东西。没有（未声明 / 冲突 / 未注册）返回 null。
+     * <p>
+     * null 的含义是"这个字段在这件武器上不生效"，调用方据此决定放行原版还是什么都不做——
+     * 不是错误（冲突本来就是数据包作者要看见的结论之一）。
+     */
+    public static WeaponBehavior behaviorFor(ItemStack stack, BehaviorField field) {
+        FieldResult winner = select(stack, field);
+        return winner == null ? null : BehaviorRegistry.get(winner.behavior());
+    }
+
+    /** 胜出的**声明**（行为 id + hud id）——行为的各入口都要带着它。没有则 null */
+    public static PartTypeDef.BehaviorDecl declFor(ItemStack stack, BehaviorField field) {
+        FieldResult winner = select(stack, field);
+        if (winner == null) return null;
+        return new PartTypeDef.BehaviorDecl(winner.behavior(), Optional.ofNullable(winner.hud()));
+    }
+
+    /**
+     * 只拿得到物品栈的原版钩子（{@code Item.getUseAnimation}）用：主手字段优先，其次副手。
+     * <p>
+     * 那是原版签名本身的限制（没有手也没有实体），见 {@code WeaponBehavior.useAnimation}。
+     * 内置行为里只有格挡有动画、而格挡挂在 {@code mainHandUse} 上，故实际不会歧义。
+     */
+    public static PartTypeDef.BehaviorDecl firstUseDecl(ItemStack stack) {
+        PartTypeDef.BehaviorDecl main = declFor(stack, BehaviorField.MAIN_HAND_USE);
+        return main != null ? main : declFor(stack, BehaviorField.OFF_HAND_USE);
+    }
+
+    /**
+     * 这只物品栈在实体手上的哪一边——**只给拿不到手参数的钩子用**（{@code getUseDuration}）。
+     * <p>
+     * 原版 {@code LivingEntity.startUsingItem} 把 {@code getUseItem()} 直接当物品栈传进来，所以
+     * 这里按**实例**比较是准确的（不是值比较）。都不匹配时按主手——那种情形下结论本来就无意义。
+     */
+    public static InteractionHand handOf(LivingEntity entity, ItemStack stack) {
+        return entity.getOffhandItem() == stack ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND;
+    }
+
+    /**
+     * 这只手是否被**另一只手**的武器屏蔽（{@code disableOffHand}）。
+     * <p>
+     * 判定"另一只手上的那把武器"，与旧代码里的 {@code isTwoHandedStack(player.getMainHandItem())}
+     * 同向：手上拿着双手武器时，副手出刀被挡。反向也成立（副手握着声明了 disableOffHand 的武器时，
+     * 主手右键归它）——目前没有数据这么用，但规则是对称的。
+     */
+    public static boolean otherHandBlocks(Player player, InteractionHand hand) {
+        InteractionHand other = hand == InteractionHand.MAIN_HAND
+                ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND;
+        ItemStack stack = player.getItemInHand(other);
+        return !stack.isEmpty() && disableOffHand(AssemblyTree.of(stack));
     }
 
     /**
@@ -97,12 +191,31 @@ public final class BehaviorResolver {
 
     // —— 内部 ——
 
-    /** 一个"层"：类型 + 它的直接子件（levels 下标） */
-    private record Level(PartTypeDef type, String partId, List<Integer> children) {}
+    /**
+     * 一层的解析输入——{@code AssemblyTree} 那一侧适配出来的东西。
+     * <p>
+     * 摊成这个形状是为了让算法**不依赖物品栈与注册表**：离线检查器（{@code tmp/codeccheck}）直接造几层
+     * 就能跑同一条代码路径。四条规则错起来全是静默的（表现为"某个行为不生效"），只靠游戏里试很难定位。
+     *
+     * @param type                 本层的类型
+     * @param partId               本层来自哪个零件（诊断用）
+     * @param isRoot               是不是整件武器那一层（只有它吃旧字段别名）
+     * @param legacyOffhandAttack  旧的 {@code offhandAttack} 派生值（全树 OR）——仅根层有意义
+     * @param legacyStyle          旧的 {@code combat.style} 派生值（第一个 attack 型节点）——仅根层有意义
+     * @param children             直接子件，**下标必须大于本层**（DFS 前序保证，见 {@link #resolveLevels}）
+     */
+    record LevelSpec(PartTypeDef type, String partId, boolean isRoot, boolean legacyOffhandAttack,
+                     PartTypeDef.AttackStyle legacyStyle, List<ChildSpec> children) {}
 
-    private static Map<BehaviorField, FieldResult> resolveLevel(Level level, boolean isRoot,
-                                                                List<Map<BehaviorField, FieldResult>> results,
-                                                                List<AssemblyTree.Node> nodes, AssemblyTree tree) {
+    /**
+     * 一个直接子件：它在 {@code levels} 里的下标 + **它所在槽位**（优先级从槽位读，不从零件读）+ 它是哪个
+     * 零件（诊断用，将来装配界面标"谁在抢这个字段"要用）。
+     * {@code slot} 为 null 表示"这个子件没有所在槽位"（装配树里不可能，但也没必要炸）。
+     */
+    record ChildSpec(int index, PartTypeDef.SlotDef slot, String partId) {}
+
+    private static Map<BehaviorField, FieldResult> resolveLevel(LevelSpec level,
+                                                                List<Map<BehaviorField, FieldResult>> results) {
         Map<BehaviorField, List<Candidate>> candidates = new EnumMap<>(BehaviorField.class);
         for (BehaviorField field : BehaviorField.values()) candidates.put(field, new ArrayList<>());
 
@@ -113,35 +226,37 @@ public final class BehaviorResolver {
                             level.partId(), false)));
         }
 
-        // ② 旧布尔字段折算的别名——只在整件武器这一层，且直接读 AssemblyTree 已经派生好的值，
-        //    保证与迁移前语义一字不差（offhandAttack 历来是全树 OR、twoHanded 历来只读根）。
-        //    刻意**不走"子件以槽位优先级入场"**：那条路要求旧 JSON 补写槽位优先级，否则短刀的
-        //    副手出刀会因为"槽位没给 offHandUse 说话权"而丢掉。
-        if (isRoot) {
-            if (tree.offhandAttack()) {
-                candidates.get(BehaviorField.OFF_HAND_USE).add(new Candidate(0, BehaviorRegistry.SWING, null,
-                        "（旧字段 offhandAttack）", true));
-            }
-            if (level.type().twoHanded()) {
-                candidates.get(BehaviorField.MAIN_HAND_USE).add(new Candidate(0, BehaviorRegistry.BLOCK, null,
-                        "（旧字段 twoHanded）", true));
-            }
-        }
-
-        // ③ 直接子件：以"它所在槽位给这个字段的优先级"进入
-        for (int childIndex : level.children()) {
-            AssemblyTree.Node child = nodes.get(childIndex - 1);
-            PartTypeDef.SlotDef slot = child.parentSlot();
-            Map<BehaviorField, FieldResult> childResult = results.get(childIndex);
-            if (slot == null || childResult == null) continue;
+        // ② 直接子件：以"它所在槽位给这个字段的优先级"进入
+        for (ChildSpec child : level.children()) {
+            Map<BehaviorField, FieldResult> childResult = results.get(child.index());
+            if (child.slot() == null || childResult == null) continue;
             for (BehaviorField field : BehaviorField.values()) {
                 FieldResult winner = childResult.get(field);
                 if (winner == null) continue;
-                int priority = slot.priorityFor(field);
+                int priority = child.slot().priorityFor(field);
                 if (priority < 1) continue;      // 槽位没给这个字段说话权 → 子树的结果在这一层不参与
                 candidates.get(field).add(new Candidate(priority, winner.behavior(), winner.hud(),
                         child.partId(), false));
             }
+        }
+
+        // ③ 旧字段折算的别名——只在整件武器这一层，且**兜底**（没有任何显式声明时才加）。
+        //    用的是 AssemblyTree 已经派生好的值，保证与迁移前语义一字不差（offhandAttack 历来是全树 OR、
+        //    twoHanded 历来只读根、attackStyle 历来取第一个 attack 型节点）。刻意**不走"子件以槽位优先级
+        //    入场"**那条路：它要求旧 JSON 补写槽位优先级，否则短刀的副手出刀会因为"槽位没给 offHandUse
+        //    说话权"而整个丢掉。
+        if (level.isRoot()) {
+            if (level.legacyOffhandAttack()) {
+                addAlias(candidates, BehaviorField.OFF_HAND_USE, BehaviorRegistry.SWING,
+                        BehaviorHudIds.OFFHAND_ATTACK, "（旧字段 offhandAttack）");
+            }
+            if (level.type().twoHanded()) {
+                // 格挡没有 HUD——姿态动画本身就是反馈（旧数据也没有这一条指示器）
+                addAlias(candidates, BehaviorField.MAIN_HAND_USE, BehaviorRegistry.BLOCK,
+                        null, "（旧字段 twoHanded）");
+            }
+            addAlias(candidates, BehaviorField.ATTACK, styleBehaviorId(level.legacyStyle()),
+                    BehaviorHudIds.ATTACK_INDICATOR, "（旧字段 combat.style）");
         }
 
         // ④ 每字段取最大；并列 → 该字段没有胜者
@@ -199,6 +314,27 @@ public final class BehaviorResolver {
             case MAIN_HAND_USE -> type.mainHandUse();
             case OFF_HAND_USE -> type.offHandUse();
             case ATTACK -> type.attack();
+        };
+    }
+
+    /**
+     * 追加一条**别名**候选（旧字段折算）——该字段已经有了显式声明就什么都不加，见类注释的说明。
+     * 别名一律以 0 档（本层默认）入场：它是"没人说话时的旧解释"，不是一支竞争力量。
+     */
+    private static void addAlias(Map<BehaviorField, List<Candidate>> candidates, BehaviorField field,
+                                 String behavior, String hud, String partId) {
+        for (Candidate candidate : candidates.get(field)) {
+            if (!candidate.fromAlias()) return;      // 有人显式声明了 → 别名让位
+        }
+        candidates.get(field).add(new Candidate(0, behavior, hud, partId, true));
+    }
+
+    /** 旧的 {@code combat.style} → 攻击方式行为 id */
+    private static String styleBehaviorId(PartTypeDef.AttackStyle style) {
+        return switch (style) {
+            case SWEEP -> BehaviorRegistry.SWEEP_ATTACK;
+            case CRITICAL -> BehaviorRegistry.CRITICAL_ATTACK;
+            case NORMAL -> BehaviorRegistry.STRIKE_ATTACK;
         };
     }
 

@@ -1,5 +1,9 @@
 package com.funnyb.cwc.item;
 
+import com.funnyb.cwc.combat.behavior.BehaviorField;
+import com.funnyb.cwc.combat.behavior.BehaviorRegistry;
+import com.funnyb.cwc.combat.behavior.BehaviorResolver;
+import com.funnyb.cwc.combat.behavior.WeaponBehavior;
 import com.funnyb.cwc.crafting.AssemblyTree;
 import com.funnyb.cwc.crafting.PartTypeDef;
 import com.funnyb.cwc.crafting.WeaponStats;
@@ -20,11 +24,13 @@ import net.minecraft.world.level.Level;
 
 /**
  * CWC 组装武器底座（{@link CwcItems#HANDLE_PART}）。
- * 职责只剩三件：双手武器右键格挡、武器身份的判定（双手/短刀/普攻方式）、属性按需推导。
- * 攻击行为（主手强制冷却、副手短刀出刀）统一走 {@link com.funnyb.cwc.combat.CwcCombat} 管线。
  * <p>
- * 身份与派生量全部由 {@link AssemblyTree} 提供——一次遍历、槽位声明序。此前 {@code hasOffhandAttack} /
- * {@code findAttackStyle} 是与 {@code WeaponStats} 并行的两份递归，遍历顺序还不一致，现已合并。
+ * <b>它自己不再知道任何具体动作。</b>右键动作由装配树按字段与优先级选出行为（{@link BehaviorResolver}），
+ * 本类只把原版 {@code Item} 的四个钩子（{@code use} / {@code getUseDuration} / {@code getUseAnimation} /
+ * {@code releaseUsing}）按手转发过去——所以"这把武器能做什么"完全是数据的事。
+ * <p>
+ * 攻击行为（主手强制冷却、副手出刀）统一走 {@link com.funnyb.cwc.combat.CwcCombat} 管线；
+ * 属性与身份判定由 {@link AssemblyTree} 提供（一次遍历、槽位声明序）。
  */
 public class CwcWeapon extends TieredItem {
 
@@ -62,55 +68,78 @@ public class CwcWeapon extends TieredItem {
     }
 
     /**
-     * 右手：双手武器右键进入格挡；单手武器 pass（右键留给副手/其他物品）。
-     * 副手短刀的右键攻击由客户端拦截改发 CwcOffhandAttackPacket，不进这里。
+     * 右键按下——交给**这只手**的字段胜出的行为。
+     * <p>
+     * 没有任何胜出（这一手没声明 / 冲突）时 {@code pass}，右键照旧落到原版（放方块、交互）。
+     * 副手出刀的右键由客户端输入层拦截改发 CwcOffhandAttackPacket，不进这里。
      */
     @Override
     public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
         ItemStack stack = player.getItemInHand(hand);
-        if (!isTwoHandedStack(stack)) {
+        PartTypeDef.BehaviorDecl decl = BehaviorResolver.declFor(stack, BehaviorField.useField(hand));
+        WeaponBehavior behavior = decl == null ? null : BehaviorRegistry.get(decl.behavior());
+        if (behavior == null) return InteractionResultHolder.pass(stack);   // 放行原版
+        if (!behavior.onUse(new WeaponBehavior.UseContext(
+                BehaviorField.useField(hand), level, player, hand, stack, decl))) {
             return InteractionResultHolder.pass(stack);
         }
-        player.startUsingItem(hand);
         return InteractionResultHolder.consume(stack);
     }
 
-    /** 双手武器使用时长 72000 tick（持续按住 = 持续格挡） */
+    /**
+     * 保持时长——这个钩子**拿不到手**（原版签名只有物品栈与实体），故按物品栈实际在哪只手上判
+     * （见 {@link BehaviorResolver#handOf}；原版把 {@code getUseItem()} 原样传进来，按实例比较是准的）。
+     */
     @Override
     public int getUseDuration(ItemStack stack, LivingEntity entity) {
-        return isTwoHandedStack(stack) ? 72000 : 0;
-    }
-
-    /** 双手武器借原版格挡姿态动画作为视觉反馈 */
-    @Override
-    public UseAnim getUseAnimation(ItemStack stack) {
-        return isTwoHandedStack(stack) ? UseAnim.BLOCK : UseAnim.NONE;
-    }
-
-    /** 是否双手武器底座（类型标记 twoHanded）——供格挡 use 与格挡减伤判断复用 */
-    public static boolean isTwoHandedStack(ItemStack stack) {
-        PartTypeDef type = AssemblyTree.of(stack).rootType();
-        return type != null && type.twoHanded();
-    }
-
-    /** 是否短刀武器：底座为手柄，且装配树中存在声明 offhandAttack 的零件（副手右键出刀） */
-    public static boolean isOffhandKnife(ItemStack stack) {
-        if (stack.getItem() != CwcItems.HANDLE_PART.get()) return false;
-        return AssemblyTree.of(stack).offhandAttack();
+        InteractionHand hand = BehaviorResolver.handOf(entity, stack);
+        PartTypeDef.BehaviorDecl decl = BehaviorResolver.declFor(stack, BehaviorField.useField(hand));
+        WeaponBehavior behavior = decl == null ? null : BehaviorRegistry.get(decl.behavior());
+        return behavior == null ? 0 : behavior.useDuration(stack, entity, decl);
     }
 
     /**
-     * 普攻方式（刃型指定）——装配树中第一个 attack 型节点的 combat.style。
-     * 非手柄/未装配/查不到按 NORMAL。
+     * 保持中的姿态动画——这个钩子**连实体都没有**，所以按"主手字段优先、其次副手"取声明
+     * （见 {@link BehaviorResolver#firstUseDecl}）。内置行为里只有格挡有动画、而格挡挂在
+     * {@code mainHandUse} 上，故不会歧义。
      */
-    public static PartTypeDef.AttackStyle attackStyle(ItemStack stack) {
-        if (stack.getItem() != CwcItems.HANDLE_PART.get()) return PartTypeDef.AttackStyle.NORMAL;
-        return AssemblyTree.of(stack).attackStyle();
+    @Override
+    public UseAnim getUseAnimation(ItemStack stack) {
+        PartTypeDef.BehaviorDecl decl = BehaviorResolver.firstUseDecl(stack);
+        WeaponBehavior behavior = decl == null ? null : BehaviorRegistry.get(decl.behavior());
+        return behavior == null ? UseAnim.NONE : behavior.useAnimation(stack, decl);
+    }
+
+    /**
+     * 松开右键——保持型动作的释放点（蓄力弓的发射之类；格挡没有释放动作，默认实现什么都不做）。
+     * <p>
+     * 只认玩家：本模组的动作全部以玩家为上下文（{@code UseContext.player} 因此可以是非空的），
+     * 非玩家实体拿着武器松手在这里直接忽略。
+     */
+    @Override
+    public void releaseUsing(ItemStack stack, Level level, LivingEntity entity, int timeLeft) {
+        if (!(entity instanceof Player player)) return;
+        InteractionHand hand = BehaviorResolver.handOf(entity, stack);
+        BehaviorField field = BehaviorField.useField(hand);
+        PartTypeDef.BehaviorDecl decl = BehaviorResolver.declFor(stack, field);
+        WeaponBehavior behavior = decl == null ? null : BehaviorRegistry.get(decl.behavior());
+        if (behavior == null) return;
+        behavior.onReleaseUse(new WeaponBehavior.UseContext(field, level, player, hand, stack, decl), timeLeft);
+    }
+
+    /**
+     * 是不是**本模组武器底座**——所有"这只手的物品算不算武器"的判断都走这里。
+     * <p>
+     * 光看"有没有装配树"不够：单个零件（刃/镡）也带 {@code PART_IDENTITY}，所以必须认物品本身。
+     * 这条口径与迁移前各处的 {@code getItem() != HANDLE_PART} 完全一致（BUG-005 裸刃不能打人就靠它）。
+     */
+    public static boolean isWeaponBase(ItemStack stack) {
+        return !stack.isEmpty() && stack.getItem() == CwcItems.HANDLE_PART.get();
     }
 
     /**
      * 格挡减伤加成（镡等零件提供）——从装配树现算，不再读 {@code BLOCK_VALUE} 组件。
-     * 每次受击算一次，代价可忽略。见 {@link com.funnyb.cwc.combat.CwcCombatEvents#onHurt}。
+     * 每次受击算一次，代价可忽略。见 {@link com.funnyb.cwc.combat.behavior.BlockBehavior}。
      */
     public static float blockBonus(ItemStack stack) {
         return (float) AssemblyTree.of(stack).block();

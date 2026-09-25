@@ -11,8 +11,10 @@ import com.funnyb.cwc.network.serverbound.SelectPartPacket;
 import com.funnyb.cwc.network.serverbound.SetScrollPacket;
 
 import com.funnyb.cwc.combat.CwcCombat;
+import com.funnyb.cwc.combat.behavior.BehaviorDispatch;
 
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
@@ -88,13 +90,14 @@ public class CwcNetwork {
                     }
                 });
 
-        // 客户端→服务端：副手短刀右键攻击（目标由客户端 hitResult 点选，服务端权威执行）
+        // 客户端→服务端：副手右键出手（目标由客户端 hitResult 点选，服务端权威执行）。
+        // 具体动作由"这只手右键胜出的行为"决定（短刀 = cwc:swing_use），见 BehaviorDispatch。
         registrar.playToServer(
                 CwcOffhandAttackPacket.TYPE,
                 CwcOffhandAttackPacket.STREAM_CODEC,
                 (payload, ctx) -> {
                     if (ctx.player() instanceof ServerPlayer player) {
-                        CwcCombat.performOffhandAttack(player, payload.targetId());
+                        BehaviorDispatch.serverUse(player, InteractionHand.OFF_HAND, payload.targetId());
                     }
                 });
 

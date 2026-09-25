@@ -2,6 +2,7 @@ package com.funnyb.cwc.crafting;
 
 import com.funnyb.cwc.combat.behavior.BehaviorField;
 import com.funnyb.cwc.combat.behavior.BehaviorRegistry;
+import com.funnyb.cwc.combat.behavior.WeaponBehavior;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.DataResult;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
@@ -28,17 +29,22 @@ import java.util.Optional;
  * @param layer        渲染优先级（整数/实数），越大越靠上；null 默认 0
  * @param combat       攻击特征（刃型声明攻击范围/击退加成/普攻方式）。null 表示默认无加成
  * @param twoHanded    是否双手武器。默认 false
- *                     —— **已废弃别名**：等价于 {@code mainHandUse = cwc:block_use} **加上**
+ *                     —— **已废弃别名**：等价于 {@code mainHandUse = "cwc:block_use"} **加上**
  *                     {@code disableOffHand = true}（旧字段同时管"主手右键格挡"与"屏蔽副手"两件事）
  * @param offset       整体贴图偏移（像素，渲染时武器整体平移，改变握持位置）。null 表示无偏移
  * @param offhandAttack 刃型是否可副手右键攻击。默认 false
- *                     —— **已废弃别名**：等价于 {@code offHandUse = cwc:swing_use}
+ *                     —— **已废弃别名**：等价于
+ *                     {@code offHandUse = {behavior: "cwc:swing_use", hud: "cwc:offhand_attack"}}
  * @param mainHandUse  该物品**在主手**时右键做什么。缺失 = 原版 use 路径照旧（放方块/交互）
  * @param offHandUse   该物品**在副手**时右键做什么。缺失 = 副手右键交给原版
  * @param attack       该物品的攻击方式——**在哪只手就按那只手读**（短刀在副手时用的就是它）。
- *                     缺失 = 暂走旧的 {@code combat.style} 那套（本批尚未迁移）
+ *                     缺失 = 由旧的 {@code combat.style} 折算（normal/sweep/critical → 对应的内建攻击方式，
+ *                     并带上 {@code cwc:attack_indicator} 这个 HUD）
  * @param disableOffHand 是否屏蔽另一只手的动作（"双手武器占用右键"那条规则）。默认 false。
  *                     本层按 OR 生效（根 + 直接子件），**子树内部的不外传**
+ *                     <p>
+ *                     三条别名都是**兜底**：整棵树里该字段只要有任何显式声明（哪个零件都行），别名就完全不参与，
+ *                     见 {@code BehaviorResolver}。
  */
 public record PartTypeDef(Map<String, String> data, List<SlotDef> slots,
                           Position position, Double layer, CombatStyle combat, boolean twoHanded,
@@ -76,9 +82,12 @@ public record PartTypeDef(Map<String, String> data, List<SlotDef> slots,
             Codec.BOOL.optionalFieldOf("twoHanded", false).forGetter(PartTypeDef::twoHanded),
             Position.CODEC.optionalFieldOf("offset", NO_POSITION).forGetter(PartTypeDef::offset),
             Codec.BOOL.optionalFieldOf("offhandAttack", false).forGetter(PartTypeDef::offhandAttack),
-            BehaviorDecl.CODEC.optionalFieldOf("mainHandUse").forGetter(PartTypeDef::mainHandUse),
-            BehaviorDecl.CODEC.optionalFieldOf("offHandUse").forGetter(PartTypeDef::offHandUse),
-            BehaviorDecl.CODEC.optionalFieldOf("attack").forGetter(PartTypeDef::attack),
+            BehaviorDecl.codec(BehaviorField.MAIN_HAND_USE).optionalFieldOf("mainHandUse")
+                    .forGetter(PartTypeDef::mainHandUse),
+            BehaviorDecl.codec(BehaviorField.OFF_HAND_USE).optionalFieldOf("offHandUse")
+                    .forGetter(PartTypeDef::offHandUse),
+            BehaviorDecl.codec(BehaviorField.ATTACK).optionalFieldOf("attack")
+                    .forGetter(PartTypeDef::attack),
             Codec.BOOL.optionalFieldOf("disableOffHand", false).forGetter(PartTypeDef::disableOffHand)
     ).apply(instance, PartTypeDef::new));
 
@@ -98,17 +107,38 @@ public record PartTypeDef(Map<String, String> data, List<SlotDef> slots,
      *                 （写错时客户端加载会 WARN）
      */
     public record BehaviorDecl(String behavior, Optional<String> hud) {
-        public static final Codec<BehaviorDecl> CODEC = RecordCodecBuilder.create(instance -> instance.group(
-                Codec.STRING.fieldOf("behavior").validate(BehaviorDecl::checkRegistered)
-                        .forGetter(BehaviorDecl::behavior),
-                Codec.STRING.optionalFieldOf("hud").forGetter(BehaviorDecl::hud)
-        ).apply(instance, BehaviorDecl::new));
 
-        /** 未知行为 id → 加载期报错（同未知 {@code parser} 的处理：只让这一条数据失败，不中断整个数据包） */
-        private static DataResult<String> checkRegistered(String id) {
-            if (BehaviorRegistry.isRegistered(id)) return DataResult.success(id);
-            return DataResult.error(() -> "未知的行为 behavior=\"" + id + "\"；已注册的有 "
-                    + BehaviorRegistry.registeredIds());
+        /**
+         * 某个字段的声明 codec。
+         * <p>
+         * <b>为什么按字段各造一个</b>：校验消息与"这个行为能不能挂在这个字段上"都依赖字段。
+         * 挂错字段（把攻击行为写到 {@code mainHandUse} 上）在运行时表现为**静默什么都不做**，
+         * 是最难查的一类错，所以这里把它变成加载期报错——同未知 {@code behavior} id 的处理。
+         */
+        public static Codec<BehaviorDecl> codec(BehaviorField field) {
+            return RecordCodecBuilder.create(instance -> instance.group(
+                    Codec.STRING.fieldOf("behavior").validate(id -> check(field, id))
+                            .forGetter(BehaviorDecl::behavior),
+                    Codec.STRING.optionalFieldOf("hud").forGetter(BehaviorDecl::hud)
+            ).apply(instance, BehaviorDecl::new));
+        }
+
+        /**
+         * 未知行为 id、或这个行为不支持该字段 → 加载期报错（同未知 {@code parser} 的处理：
+         * 只让这一条数据失败，不中断整个数据包）。
+         */
+        private static DataResult<String> check(BehaviorField field, String id) {
+            WeaponBehavior behavior = BehaviorRegistry.get(id);
+            if (behavior == null) {
+                return DataResult.error(() -> "未知的行为 behavior=\"" + id + "\"；已注册的有 "
+                        + BehaviorRegistry.registeredIds());
+            }
+            if (!behavior.fields().contains(field)) {
+                return DataResult.error(() -> "行为 \"" + id + "\" 不能用在字段 " + field.jsonName()
+                        + " 上；它能用的字段是 " + behavior.fields().stream().map(BehaviorField::jsonName).toList()
+                        + "，本字段可用的是 " + BehaviorRegistry.registeredIds(field));
+            }
+            return DataResult.success(id);
         }
     }
 

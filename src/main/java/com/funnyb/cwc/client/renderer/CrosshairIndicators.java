@@ -1,17 +1,19 @@
 package com.funnyb.cwc.client.renderer;
 
 import com.funnyb.cwc.ColdWeaponCraftsmanship;
-import com.funnyb.cwc.combat.CwcCombat;
+import com.funnyb.cwc.client.renderer.hud.BehaviorHud;
+import com.funnyb.cwc.client.renderer.hud.BehaviorHudRegistry;
+import com.funnyb.cwc.combat.behavior.BehaviorField;
+import com.funnyb.cwc.combat.behavior.BehaviorRegistry;
+import com.funnyb.cwc.combat.behavior.BehaviorResolver;
+import com.funnyb.cwc.crafting.PartTypeDef;
 import com.funnyb.cwc.item.CwcWeapon;
-import com.funnyb.cwc.registry.CwcItems;
-import com.mojang.blaze3d.platform.GlStateManager;
-import com.mojang.blaze3d.systems.RenderSystem;
 
-import net.minecraft.client.AttackIndicatorStatus;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.EntityHitResult;
@@ -21,18 +23,27 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.RenderGuiLayerEvent;
 import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
 
+import java.util.HashSet;
+import java.util.Set;
+
 /**
- * 准星层接管与 CWC 攻击指示器。
+ * 准星层接管与 CWC 指示器的**分派**。
+ * <p>
+ * <b>本类只做三件事</b>：决定"要不要接管原版准星层"、画准星本体、把"哪只手 × 哪个字段"交给
+ * {@code BehaviorHudRegistry} 里注册的 HUD。具体怎么画在各自的 {@link BehaviorHud} 里，
+ * 几何在 {@link CrosshairBar} 里（唯一一份）。
  * <p>
  * <b>{@link #onCrosshairPre} 与 {@link #onCrosshairPost} 是一对互补物，必须同处一个类</b>：
  * Pre 在主手**是** CWC 武器时取消原版 crosshair 层（原版准星 + 攻击指示器）并自画；
- * Post 只在主手**非** CWC 时补画副手短刀指示器。两者各自判一次主手是不是 CWC，所以只搬走一个的后果是
+ * Post 只在主手**非** CWC 时补画副手指示器。两者各自判一次主手是不是 CWC，所以只搬走一个的后果是
  * 副手指示器**画两次**（同一位置两次反色 = 看着不对）或**完全消失**。
  * <p>
- * 本类**不读**任何跨 tick 状态（模式锁 / 主手武器身份 / 副手挂起旗子），只读 {@code mc.hitResult}、
- * {@code mc.options} 与 {@link CwcCombat} 的查询——它与 {@code CwcClientEvents} 的 tick 相位耦合为零。
+ * <b>只画固定的两对（手 × 字段）</b>：主手的 {@code attack} 与副手的 {@code offHandUse}。
+ * 副手的 {@code attack} 字段**故意不单独画**——它的结论已经并进出刀那条 HUD（"就绪 + 有目标 → 满格"），
+ * 两条画在同一位置会反色两次、等于什么都没画。
  * <p>
- * （自 {@code CwcClientEvents} 抽出时是纯搬运；那边的 tick 相位说明见 {@code CwcClientEvents} 的类文档。）
+ * 本类**不读**任何跨 tick 状态（模式锁 / 主手武器身份 / 副手挂起旗子），只读 {@code mc.hitResult}、
+ * {@code mc.options} 与 {@code CwcCombat} 的查询——它与 {@code CwcClientEvents} 的 tick 相位耦合为零。
  */
 @EventBusSubscriber(modid = ColdWeaponCraftsmanship.MODID, value = Dist.CLIENT)
 public class CrosshairIndicators {
@@ -40,12 +51,6 @@ public class CrosshairIndicators {
     /** 准星本体精灵（复刻原版 renderCrosshair 居中 15×15） */
     private static final ResourceLocation CROSSHAIR_SPRITE =
             ResourceLocation.withDefaultNamespace("hud/crosshair");
-    private static final ResourceLocation OFFHAND_INDICATOR_BACKGROUND =
-            ResourceLocation.withDefaultNamespace("hud/crosshair_attack_indicator_background");
-    private static final ResourceLocation OFFHAND_INDICATOR_PROGRESS =
-            ResourceLocation.withDefaultNamespace("hud/crosshair_attack_indicator_progress");
-    private static final ResourceLocation OFFHAND_INDICATOR_FULL =
-            ResourceLocation.withDefaultNamespace("hud/crosshair_attack_indicator_full");
 
     /**
      * crosshair 层接管——主手 CWC 武器时取消原版层（原版准星 + 攻击指示器），自画准星 + CWC 指示器。
@@ -61,8 +66,7 @@ public class CrosshairIndicators {
         if (player == null) return;
         if (!mc.options.getCameraType().isFirstPerson()) return;    // 只第一人称（与准星一致）
         if (player.isSpectator()) return;                            // 旁观者走原版逻辑
-        ItemStack main = player.getMainHandItem();
-        if (main.getItem() != CwcItems.HANDLE_PART.get()) return;    // 只接管 CWC 主手
+        if (!CwcWeapon.isWeaponBase(player.getMainHandItem())) return;   // 只接管 CWC 主手
 
         // F3 debug 3D 准星放行原版（debug 分支只画 3D 准星、不画攻击指示器，无两次反色）
         if (mc.getDebugOverlay().showDebugScreen()
@@ -72,128 +76,18 @@ public class CrosshairIndicators {
 
         event.setCanceled(true);
         GuiGraphics gui = event.getGuiGraphics();
-        // 反色混合：准星本体 + 主手攻击指示器（复刻原版 renderCrosshair 样式）
-        RenderSystem.enableBlend();
-        RenderSystem.blendFuncSeparate(
-                GlStateManager.SourceFactor.ONE_MINUS_DST_COLOR,
-                GlStateManager.DestFactor.ONE_MINUS_SRC_COLOR,
-                GlStateManager.SourceFactor.ONE,
-                GlStateManager.DestFactor.ZERO
-        );
+        CrosshairBar.enableInvertBlend();   // 准星本体与两条指示器共用这一档反色混合
         // 准星本体：居中 15×15
         gui.blitSprite(CROSSHAIR_SPRITE, (gui.guiWidth() - 15) / 2, (gui.guiHeight() - 15) / 2, 15, 15);
-        // 主手 CWC 攻击指示器：仅 CROSSHAIR 模式画准星下方；HOTBAR 走原版快捷栏指示器（hotbar 层不受影响）、OFF 不显示
-        if (mc.options.attackIndicator().get() == AttackIndicatorStatus.CROSSHAIR) {
-            renderMainHandIndicator(gui, player, main);
-        }
-        RenderSystem.defaultBlendFunc();
-        // 副手短刀指示器（内部自管反色混合）
-        renderOffhandIndicator(gui, player);
-        RenderSystem.disableBlend();
+        // 主手：攻击指示器（准星下方）；副手：出刀指示器（准星上方，见下）
+        renderHud(gui, player, InteractionHand.MAIN_HAND, BehaviorField.ATTACK);
+        renderHud(gui, player, InteractionHand.OFF_HAND, BehaviorField.OFF_HAND_USE);
+        CrosshairBar.disableInvertBlend();
     }
 
     /**
-     * 主手 CWC 攻击指示器（准星下方，反色混合由调用方保证）：
-     * 攻速未满 → 进度条；攻速满 + 存在可攻击目标 → 满格图标；攻速满 + 无目标 → 空。
-     * "存在可攻击目标"：横扫 = 攻击范围内有可攻击实体（不要求准星对准）；单体（短刀/斧）= 准星目标可命中。
-     */
-    private static void renderMainHandIndicator(GuiGraphics gui, Player player, ItemStack main) {
-        Minecraft mc = Minecraft.getInstance();
-        float scale = player.getAttackStrengthScale(0.0F);
-        int x = gui.guiWidth() / 2 - 8;
-        int y = gui.guiHeight() / 2 + 9;
-        if (scale >= 1.0F) {
-            if (CwcCombat.hasAnyAttackableTarget(player, main, InteractionHand.MAIN_HAND,
-                    mc.hitResult instanceof EntityHitResult ehr ? ehr.getEntity() : null)) {
-                gui.blitSprite(OFFHAND_INDICATOR_FULL, x, y, 16, 16);
-            }
-        } else {
-            gui.blitSprite(OFFHAND_INDICATOR_BACKGROUND, x, y, 16, 4);
-            gui.blitSprite(OFFHAND_INDICATOR_PROGRESS, 16, 4, 0, 0, x, y, (int) (scale * 17.0F), 4);
-        }
-    }
-
-    /**
-     * 副手短刀攻击指示器（准星上方，内部自管反色混合）：短刀冷却就绪 + 存在可命中目标 → 满格图标；
-     * 冷却中即使有目标也只显示就绪度进度条。主手非 CWC 时由 {@link #onCrosshairPost} 调用，
-     * 主手 CWC 时由 {@link #onCrosshairPre} 接管调用。
-     * <p>
-     * 位置是主手那条的**镜像**（见下方坐标注释），而三张 sprite 还要**垂直翻转**再画——
-     * 因为它们是给"准星**下方**"设计的、且可见内容在自己的贴图框里并不居中，理由见 {@link #blitFlipped}。
-     */
-    private static void renderOffhandIndicator(GuiGraphics gui, Player player) {
-        Minecraft mc = Minecraft.getInstance();
-        ItemStack off = player.getOffhandItem();
-        if (!CwcWeapon.isOffhandKnife(off)) return;
-        if (CwcWeapon.isTwoHandedStack(player.getMainHandItem())) return; // 双手武器占用右键
-        // 就绪度 = 1 - 副手独立冷却占比（1 可攻击，0 刚出刀）；partial tick 固定 0（与原版 getAttackStrengthScale(0.0F) 一致）
-        float ready = CwcCombat.offhandReadiness(player);
-        int x = gui.guiWidth() / 2 - 8;      // 16 宽居中于准星
-        // 整条取主手那条关于**准星精灵中心行**的镜像。主手 = 冷却条与满格图标**同顶**于 h/2+9
-        // （原版 renderCrosshair 就是这么画的：`int j = guiHeight/2 - 7 + 16`，图标与条共用 j），
-        // 副手 = 两者同**底**，于是两边在"未满"和"满"两个状态下到准星的距离都一致。
-        // **"同底"是关键**：只让条对齐、图标留在原处（贴着准星上沿）会得到"未满对称、满了跳 2 行"。
-        // 镜面用精灵**自身**的中心行（精灵 15 高、顶行 (h-15)/2 → 中心行 (h-15)/2 + 7）：
-        // 精灵并不以 h/2 为对称中心，用 h/2 会差一行。
-        final int crosshairCenterRow = (gui.guiHeight() - 15) / 2 + 7;
-        int barY = 2 * crosshairCenterRow - (gui.guiHeight() / 2 + 9) - 3;   // 条顶 = 镜像主手条顶(h/2+9)
-        int iconY = barY - 12;                                              // 图标 16 高、条 4 高 → 与条底边对齐
-        RenderSystem.enableBlend();
-        RenderSystem.blendFuncSeparate(
-                GlStateManager.SourceFactor.ONE_MINUS_DST_COLOR,
-                GlStateManager.DestFactor.ONE_MINUS_SRC_COLOR,
-                GlStateManager.SourceFactor.ONE,
-                GlStateManager.DestFactor.ZERO
-        );
-        // 满格图标（可攻击提示）：冷却就绪 && 存在可攻击目标（不要求准星对准横扫，单体看准星）
-        boolean canHit = ready >= 1.0F && CwcCombat.hasAnyAttackableTarget(player, off, InteractionHand.OFF_HAND,
-                mc.hitResult instanceof EntityHitResult ehr ? ehr.getEntity() : null);
-        if (canHit) {
-            blitFlipped(gui, OFFHAND_INDICATOR_FULL, 16, 16, x, iconY, 16);
-        } else if (ready < 1.0F) {
-            blitFlipped(gui, OFFHAND_INDICATOR_BACKGROUND, 16, 4, x, barY, 16);
-            blitFlipped(gui, OFFHAND_INDICATOR_PROGRESS, 16, 4, x, barY, (int) (ready * 17.0F));
-        }
-        RenderSystem.defaultBlendFunc();
-        RenderSystem.disableBlend();
-    }
-
-    /**
-     * 把 sprite **垂直翻转**后画在 (x, y)（1:1）：逐行倒序 blit —— 第 {@code row} 行取贴图的第
-     * {@code texHeight-1-row} 行。
-     * <p>
-     * <b>为什么要翻</b>：原版这三张 sprite 是给"准星<b>下方</b>"设计的，而且**可见内容在自己的贴图框里并不居中**——
-     * 16×4 的条内容在第 1–2 行（第 0/3 行只有 x=3 一个像素，近似居中），16×16 的满格图标内容只占第 0–6 行、
-     * 下面 9 行**全透明**（顶对齐）。副手这条要画在准星<b>上方</b>：不翻的话条的近似没问题，但满格图标的
-     * 可见内容会浮在离准星 11 行处——按框算出的"2 行"对不上看得见的图，表现为"图标高出一截"。
-     * 翻过来之后内容落到底部，两个状态的**可见部分**才都和主手一样离准星 2 行。
-     * <p>
-     * <b>为什么不换别的办法</b>（三条都核过源码）：
-     * <ul>
-     *   <li>{@code pose().scale(1,-1,1)} 会反转绕序 → 背面剔除，而 HUD 渲染期间 cull 是**开着**的
-     *       （{@code Minecraft} 每帧 {@code RenderSystem.enableCull()}；{@code RenderType.GUI} 不动剔除状态，
-     *       且 sprite 路径不经 {@code RenderType}，是 {@code BufferUploader.drawWithShader} 直接用环境 GL 状态）
-     *       → 得额外 bracket 全局 GL 状态；</li>
-     *   <li>负 {@code vHeight}：{@code blitSprite} 内部让 vHeight **同时进几何**（{@code y + vHeight}）
-     *       → 图会被画到框上方，绕序同样反转；</li>
-     *   <li>自备翻转贴图：要往 jar 里塞派生自原版的 png。</li>
-     * </ul>
-     * 逐行倒序只动 UV：几何与绕序都不变，也不需要任何 GL 状态。
-     *
-     * @param texWidth  sprite 自身的宽（同 {@code blitSprite} 的同名参数）
-     * @param texHeight sprite 自身的高，也即要画出的行数（本类三处都是 1:1 画）
-     * @param uWidth    要画的宽度，单位为 sprite 内像素（同 {@code blitSprite} 的 uWidth）
-     */
-    private static void blitFlipped(GuiGraphics gui, ResourceLocation sprite,
-                                    int texWidth, int texHeight, int x, int y, int uWidth) {
-        for (int row = 0; row < texHeight; row++) {
-            gui.blitSprite(sprite, texWidth, texHeight, 0, texHeight - 1 - row, x, y + row, uWidth, 1);
-        }
-    }
-
-    /**
-     * 攻击指示器 Post 兜底——主手**非 CWC** 时的副手短刀指示器（主手 CWC 时由 {@link #onCrosshairPre}
-     * 接管，Post 不触发）。**冷却就绪且存在可攻击目标 → 提示可攻击**。
+     * 攻击指示器 Post 兜底——主手**非 CWC** 时的副手指示器（主手 CWC 时由 {@link #onCrosshairPre}
+     * 接管，Post 不触发；原版准星此时由原版自己画）。
      */
     @SubscribeEvent
     public static void onCrosshairPost(RenderGuiLayerEvent.Post event) {
@@ -203,8 +97,47 @@ public class CrosshairIndicators {
         if (player == null) return;
         if (!mc.options.getCameraType().isFirstPerson()) return;    // 只第一人称显示（与准星一致）
         if (player.isSpectator()) return;                            // 旁观者不攻击
-        if (player.getMainHandItem().getItem() == CwcItems.HANDLE_PART.get()) return; // 主手 CWC 由 Pre 接管
-        renderOffhandIndicator(event.getGuiGraphics(), player);
+        if (CwcWeapon.isWeaponBase(player.getMainHandItem())) return;    // 主手 CWC 由 Pre 接管
+
+        GuiGraphics gui = event.getGuiGraphics();
+        CrosshairBar.enableInvertBlend();
+        renderHud(gui, player, InteractionHand.OFF_HAND, BehaviorField.OFF_HAND_USE);
+        CrosshairBar.disableInvertBlend();
     }
 
+    /**
+     * 画"这只手 × 这个字段"的 HUD——**分派点**：该字段胜出的声明里写着 hud id，注册表里找到实现就画。
+     * <p>
+     * 三道闸：这只手被另一只手的武器占用（{@code disableOffHand}）→ 不画；该字段没有胜出的 HUD
+     * （没写 {@code hud}）→ 不画；hud id 没注册 → WARN 一次（见 {@link BehaviorHudRegistry} 的说明）。
+     */
+    private static void renderHud(GuiGraphics gui, Player player, InteractionHand hand, BehaviorField field) {
+        if (BehaviorResolver.otherHandBlocks(player, hand)) return;   // 双手武器占用另一只手的右键
+        ItemStack stack = player.getItemInHand(hand);
+        PartTypeDef.BehaviorDecl decl = BehaviorResolver.declFor(stack, field);
+        if (decl == null || decl.hud().isEmpty()) return;
+        String hudId = decl.hud().get();
+        BehaviorHud hud = BehaviorHudRegistry.get(hudId);
+        if (hud == null) {
+            warnUnknownHud(hudId);
+            return;
+        }
+        hud.render(gui, new BehaviorHud.HudContext(field, player, hand, stack, decl,
+                BehaviorRegistry.get(decl.behavior()), crosshairTarget()));
+    }
+
+    /** 准星命中的实体——判定"有没有可攻击目标"用（客户端侧取，通用包不能引用客户端类型） */
+    private static Entity crosshairTarget() {
+        return Minecraft.getInstance().hitResult instanceof EntityHitResult ehr ? ehr.getEntity() : null;
+    }
+
+    /** 已经 WARN 过的 hud id——HUD 注册在客户端、数据在服务端，加载期查不了，只能首次绘制时报一次，别刷屏 */
+    private static final Set<String> WARNED_HUDS = new HashSet<>();
+
+    private static void warnUnknownHud(String hudId) {
+        if (WARNED_HUDS.add(hudId)) {
+            ColdWeaponCraftsmanship.LOGGER.warn("未知的 HUD id \"{}\"；已注册的有 {}",
+                    hudId, BehaviorHudRegistry.registeredIds());
+        }
+    }
 }

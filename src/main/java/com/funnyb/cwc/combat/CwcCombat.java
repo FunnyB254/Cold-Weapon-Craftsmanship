@@ -1,7 +1,9 @@
 package com.funnyb.cwc.combat;
 
+import com.funnyb.cwc.combat.behavior.BehaviorField;
+import com.funnyb.cwc.combat.behavior.BehaviorResolver;
+import com.funnyb.cwc.combat.behavior.WeaponBehavior;
 import com.funnyb.cwc.crafting.PartTypeDef;
-import com.funnyb.cwc.item.CwcWeapon;
 import com.funnyb.cwc.registry.CwcItems;
 
 import net.minecraft.core.Holder;
@@ -47,18 +49,21 @@ import java.util.WeakHashMap;
  *     → 伤害结算(applyDamage / applySweep) → 冷却施加 → 反馈(挥动/音效)
  * </pre>
  *
- * 三个入口：
+ * 两个入口：
  * <ul>
  *   <li>主手普攻：{@link #performMainHandAttack}（CwcMainHandAttackPacket 触发，权威执行）</li>
- *   <li>副手短刀出刀：{@link #performOffhandAttack}（CwcOffhandAttackPacket 触发）</li>
+ *   <li>副手出刀：客户端发 CwcOffhandAttackPacket，服务端交给本次右键胜出的行为
+ *       （{@code cwc:swing_use}，见 {@code SwingBehavior#onServerUse}），它再调本类的
+ *       {@link #strikeSingle} 走同一条流水线</li>
  *   <li>第三方客户端兜底：AttackEntityEvent（见 {@link CwcCombatEvents#onAttack}）</li>
  * </ul>
  *
  * 主手不再走 vanilla {@code Player.attack}——因为横扫（sweep）要求"空挥也算范围攻击"，
  * 而 vanilla 空挥只发 ServerboundSwingPacket 不触发攻击事件，无法 hook。主副手同构：
- * 客户端点选目标发自定义包，服务端按刃型普攻方式（{@link PartTypeDef.AttackStyle}）权威结算。
+ * 客户端点选目标发自定义包，服务端按**该物品 {@code attack} 字段胜出的攻击方式**
+ * （{@link WeaponBehavior}，旧数据由 {@link PartTypeDef.AttackStyle} 折算）权威结算。
  *
- * 普攻方式（刃型声明，见 combat.style）：normal 稳定直击无暴击 / sweep 范围内全额伤害 / critical 原版跳劈暴击。
+ * 普攻方式：单体直击（normal，无暴击）/ 横扫（sweep，范围内全额伤害）/ 跳劈暴击（critical，原版 ×1.5）。
  * CWC 武器无视原版无敌帧：所有伤害入口命中前都清零目标 {@code invulnerableTime}。
  */
 public final class CwcCombat {
@@ -78,8 +83,11 @@ public final class CwcCombat {
 
     /**
      * 主手普攻——服务端权威（由 CwcMainHandAttackPacket 触发）。
-     * 走完整管线：武器校验 → 冷却校验（攻速条满）→ {@link #resolveValidTarget 目标判定}
-     * → 按刃型普攻方式结算：sweep 空挥也结算范围伤害，normal/critical 无目标仅挥空进冷却。
+     * 走完整管线：武器校验 → 冷却校验（服务端自持时钟）→ 本物品 {@code attack} 字段胜出的
+     * {@linkplain WeaponBehavior#strike 攻击方式}结算 → 冷却施加 → 挥动反馈。
+     * <p>
+     * "打谁、怎么打"全部归攻击方式；本方法只管两件与方式无关的事：**冷却计费**（空挥同样计费，与原版一致）
+     * 与**广播挥动**。
      */
     public static void performMainHandAttack(ServerPlayer player, int targetId) {
         ItemStack weapon = player.getMainHandItem();
@@ -87,17 +95,10 @@ public final class CwcCombat {
         if (!isServerCooldownReady(player, InteractionHand.MAIN_HAND, weapon)) return; // 服务端权威冷却（自持时钟）
         markMainHandAttack(player);   // 出手即计费——空挥同样进冷却，与原版一致
 
-        Entity target = resolveValidTarget(player, targetId, weapon, InteractionHand.MAIN_HAND);
-
-        PartTypeDef.AttackStyle style = CwcWeapon.attackStyle(weapon);
-        switch (style) {
-            case SWEEP -> applySweep(player, target, weapon, InteractionHand.MAIN_HAND);
-            case NORMAL, CRITICAL -> {
-                if (target != null) {
-                    applyDamage(player, target, weapon, InteractionHand.MAIN_HAND, style, true);
-                }
-            }
-        }
+        WeaponBehavior attack = BehaviorResolver.behaviorFor(weapon, BehaviorField.ATTACK);
+        if (attack != null) attack.strike(player, InteractionHand.MAIN_HAND, weapon, targetId);
+        // attack 字段并列成冲突时没有任何方式胜出 → 按空挥处理（不进伤害、不报错），
+        // 但照旧计费与挥动——对玩家而言与"打空了"是同一件事。
 
         // 攻速条仍归零，但**本模组的冷却已不读它**——冷却由 markMainHandAttack 记下的时钟推进
         // （见 isServerCooldownReady）。保留这一句只是让服务端那根条对原版自己的路径仍然可信。
@@ -106,27 +107,48 @@ public final class CwcCombat {
         player.swing(InteractionHand.MAIN_HAND, false);
     }
 
+    // ==================== 攻击方式（attack 字段）的调用面 ====================
+    //
+    // 四个消费点（服务端结算、准星点选、指示器、范围扫描）此前按 AttackStyle 枚举 switch；现在改为问
+    // "这件物品 attack 字段胜出的行为"。内置的三个方式（combat/behavior/ 下的 Strike/Sweep/CriticalAttack）
+    // 只声明风格与几何，真正干活的是下面这几个方法——第三方要加自己的攻击方式，从这里取零件拼即可。
+
     /**
-     * 副手短刀右键攻击——服务端权威执行（由 CwcOffhandAttackPacket 触发）。
-     * 走完整管线：武器校验 → 冷却校验 → {@link #resolveValidTarget 目标判定}
-     * → 伤害结算（按短刀普攻方式，normal）→ 冷却施加 → 挥动反馈。
+     * 单体命中结算——默认攻击方式（{@code cwc:strike_attack} / {@code cwc:critical_attack}）的实现；
+     * 副手出刀也走它（**出刀不做范围攻击**，横扫只属于把 attack 声明成 sweep 的那种武器）。
+     * <p>
+     * 风格取该物品攻击方式声明的 {@link #strikeStyle}，所以"短刀在副手用的就是它自己的 attack"这条规则
+     * 只有一处实现。
      */
-    public static void performOffhandAttack(ServerPlayer player, int targetId) {
-        ItemStack knife = player.getOffhandItem();
-        if (!CwcWeapon.isOffhandKnife(knife)) return;                       // 只认短刀武器
-        if (CwcWeapon.isTwoHandedStack(player.getMainHandItem())) return;   // 双手武器占用右键
-        if (!isCooldownReady(player, InteractionHand.OFF_HAND, knife)) return; // 副手独立冷却
-
-        Entity target = resolveValidTarget(player, targetId, knife, InteractionHand.OFF_HAND);
+    public static void strikeSingle(ServerPlayer player, InteractionHand hand, ItemStack weapon, int targetId) {
+        Entity target = resolveValidTarget(player, targetId, weapon, hand);
         if (target != null) {
-            applyDamage(player, target, knife, InteractionHand.OFF_HAND, CwcWeapon.attackStyle(knife), true);
+            applyDamage(player, target, weapon, hand, strikeStyle(weapon), true);
         }
+    }
 
-        applyCooldown(player, InteractionHand.OFF_HAND, knife);
-        // 反馈：副手挥动（广播给其他客户端；攻击者本地的副手挥动由客户端拦截点触发）。
-        // 必须用双参重载 swing(hand,false)——ServerPlayer.swing(hand) 会 resetAttackStrengthTicker
-        // 重置主手攻击强度，副手出刀不应影响主手冷却。
-        player.swing(InteractionHand.OFF_HAND, false);
+    /** 横扫结算——{@code cwc:sweep_attack} 的实现（挥出即范围攻击，空挥也算，见 {@link #applySweep}） */
+    public static void strikeSweep(ServerPlayer player, InteractionHand hand, ItemStack weapon, int targetId) {
+        applySweep(player, resolveValidTarget(player, targetId, weapon, hand), weapon, hand);
+    }
+
+    /** 单体几何——默认攻击方式的 {@link WeaponBehavior#canHit} 实现（公共前置已由 {@link #canHitTarget} 做完） */
+    public static boolean canHitSingle(Player player, Entity target, ItemStack weapon, InteractionHand hand) {
+        double reach = resolveReach(player, hand, weapon);
+        return target.getBoundingBox().distanceToSqr(player.getEyePosition()) <= reach * reach;
+    }
+
+    /** 横扫几何 + 友军规则——{@code cwc:sweep_attack} 的 {@link WeaponBehavior#canHit} 实现 */
+    public static boolean canHitSweep(Player player, Entity target, ItemStack weapon, InteractionHand hand) {
+        double reach = resolveReach(player, hand, weapon);
+        return canHarmAlly(player, target)
+                && (isInSweepDualRange(player, target, reach) || isHitByLookRay(player, target, reach));
+    }
+
+    /** 该物品攻击方式声明的结算风格——伤害例程据此决定暴击与音效分支（未装配/冲突按 NORMAL） */
+    public static PartTypeDef.AttackStyle strikeStyle(ItemStack weapon) {
+        WeaponBehavior attack = BehaviorResolver.behaviorFor(weapon, BehaviorField.ATTACK);
+        return attack == null ? PartTypeDef.AttackStyle.NORMAL : attack.strikeStyle();
     }
 
     // ==================== 目标解析（主副手共用的一套） ====================
@@ -721,24 +743,20 @@ public final class CwcCombat {
     }
 
     /**
-     * 准星目标能否被当前武器（手）命中——与攻击结算同规则，客户端攻击指示器用：
-     * <ul>
-     *   <li>sweep（横扫）：双区域（前方锥体/贴身球）或准星射线命中，且 {@link #canHarmAlly 队友只在队伍开着友伤时可打}。
-     *       注意这里查的是**主目标**规则，故意不用 {@link #isSweepFriendly}——准星正对自己的宠物要能打中；</li>
-     *   <li>normal/critical（单体）：眼睛到碰撞箱距离 ≤ reach（与主手点选同量法），不排除友军（单体可打友军）。</li>
-     * </ul>
+     * 准星目标能否被当前武器（手）命中——与攻击结算同规则，客户端攻击指示器与点选共用。
+     * <p>
+     * 本方法只做**公共前置**（非自己 / 可攻击 / 不在我向下的骑乘链上），几何与友军规则问该物品
+     * {@code attack} 字段胜出的行为（{@link WeaponBehavior#canHit}）：
+     * 横扫是双区域或准星射线 + {@link #canHarmAlly 按队伍友伤裁定}，单体是眼睛到碰撞箱 ≤ reach
+     * （不排除友军——单体本就可以打友军）。
+     * <p>
      * 视线由准星 {@code hitResult} 天然保证（准星射线命中实体前无方块），无需在此重复判定。
      */
     public static boolean canHitTarget(Player player, Entity target, ItemStack weapon, InteractionHand hand) {
         if (target == null || target == player || !target.isAttackable()) return false;
         if (isRideChainDown(player, target)) return false;   // 骑乘链向下：准星对着也不算可命中
-        double reach = resolveReach(player, hand, weapon);
-        return switch (CwcWeapon.attackStyle(weapon)) {
-            case SWEEP -> canHarmAlly(player, target)
-                    && (isInSweepDualRange(player, target, reach) || isHitByLookRay(player, target, reach));
-            case NORMAL, CRITICAL ->
-                    target.getBoundingBox().distanceToSqr(player.getEyePosition()) <= reach * reach;
-        };
+        WeaponBehavior attack = BehaviorResolver.behaviorFor(weapon, BehaviorField.ATTACK);
+        return attack != null && attack.canHit(player, target, weapon, hand);
     }
 
     /**
@@ -765,16 +783,15 @@ public final class CwcCombat {
     }
 
     /**
-     * 当前武器（手）是否存在**任意可攻击的目标**——攻击指示器"提示可攻击"的统一判定：
-     * 横扫 = 攻击范围内存在可攻击实体（不要求准星对准）；单体（normal/critical）= 准星目标可命中。
+     * 当前武器（手）是否存在**任意可攻击的目标**——攻击指示器"该不该亮"的统一判定，问该物品
+     * {@code attack} 字段胜出的行为（{@link WeaponBehavior#hasAnyTarget}）：
+     * 横扫 = 攻击范围内存在可攻击实体（不要求准星对准）；单体 = 准星目标可命中。
      *
      * @param crosshairTarget 客户端准星命中的实体（mc.hitResult），单体判定用；横扫忽略
      */
     public static boolean hasAnyAttackableTarget(Player player, ItemStack weapon, InteractionHand hand, Entity crosshairTarget) {
-        return switch (CwcWeapon.attackStyle(weapon)) {
-            case SWEEP -> hasSweepTarget(player, weapon, hand);
-            case NORMAL, CRITICAL -> canHitTarget(player, crosshairTarget, weapon, hand);
-        };
+        WeaponBehavior attack = BehaviorResolver.behaviorFor(weapon, BehaviorField.ATTACK);
+        return attack != null && attack.hasAnyTarget(player, weapon, hand, crosshairTarget);
     }
 
     /**

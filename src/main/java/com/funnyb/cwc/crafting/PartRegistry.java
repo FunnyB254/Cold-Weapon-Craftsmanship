@@ -1,6 +1,7 @@
 package com.funnyb.cwc.crafting;
 
 import com.funnyb.cwc.ColdWeaponCraftsmanship;
+import com.funnyb.cwc.combat.behavior.BehaviorField;
 import com.funnyb.cwc.registry.CwcRegistries;
 
 import net.minecraft.core.Registry;
@@ -60,6 +61,36 @@ public final class PartRegistry {
         ColdWeaponCraftsmanship.LOGGER.info("Loaded {} part types / {} parts",
                 typeRegistry == null ? 0 : typeRegistry.size(), partRegistry.size());
         warnOnTypeCycles();
+        warnOnSlotPriorityTies();
+    }
+
+    /**
+     * 槽位优先级**潜在并列**检测——**仅记 WARN，不阻止加载**。
+     * <p>
+     * 行为的层内解析规则是"并列 = 该字段无胜者"（见 {@code BehaviorResolver}），而并列只可能来自
+     * **同一个类型里两个槽位给同一字段同一个 ≥1 优先级**——这一条在加载期就能算出来，不必等玩家把两个槽
+     * 都装满才发现"某个行为不生效"。同优先级 + 两边都声明了该字段才会真的并列，所以只报 WARN。
+     * <p>
+     * 这是给数据作者的诊断，与 {@link #warnOnTypeCycles} 同类。
+     */
+    private static void warnOnSlotPriorityTies() {
+        for (Map.Entry<ResourceLocation, PartTypeDef> entry : typeMap().entrySet()) {
+            List<PartTypeDef.SlotDef> slots = entry.getValue().slots();
+            for (int i = 0; i < slots.size(); i++) {
+                for (int j = i + 1; j < slots.size(); j++) {
+                    for (BehaviorField field : BehaviorField.values()) {
+                        int a = slots.get(i).priorityFor(field);
+                        int b = slots.get(j).priorityFor(field);
+                        if (a < 1 || a != b) continue;      // 没写（0）不参与竞争，不会并列
+                        ColdWeaponCraftsmanship.LOGGER.warn(
+                                "类型 {} 的槽位 {} 与 {} 在字段 {} 上给了同一个优先级 {}"
+                                        + "——两者都装满且都声明该字段时，这个字段会**并列成无胜者**（仅提示，不阻止加载）",
+                                entry.getKey(), slots.get(i).name(), slots.get(j).name(),
+                                field.jsonName(), a);
+                    }
+                }
+            }
+        }
     }
 
     /**
