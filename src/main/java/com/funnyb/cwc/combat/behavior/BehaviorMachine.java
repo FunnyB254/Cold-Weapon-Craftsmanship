@@ -1,5 +1,7 @@
 package com.funnyb.cwc.combat.behavior;
 
+import com.funnyb.cwc.crafting.PartTypeDef;
+
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -17,7 +19,7 @@ import net.minecraft.world.item.ItemStack;
 public interface BehaviorMachine {
 
     /** 每 tick 推进一次（客户端与服务端各自推进自己那份） */
-    void tick(Player player, InteractionHand hand, ItemStack stack, BehaviorDecl decl);
+    void tick(Player player, InteractionHand hand, ItemStack stack, PartTypeDef.BehaviorDecl decl);
 
     /** 是否处于"占用这只手"的相位——占用期间另一只手的启动会被拒绝 */
     boolean occupies(Player player, InteractionHand hand);

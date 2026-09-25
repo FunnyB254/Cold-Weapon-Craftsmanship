@@ -16,10 +16,10 @@ import java.util.Set;
  */
 public final class BehaviorRegistry {
 
-    /** 内建行为 id——格挡（双手武器主手右键）。实现在迁移那一步注册 */
-    public static final String BLOCK = "cwc:block";
-    /** 内建行为 id——副手出刀（短刀）。实现在迁移那一步注册 */
-    public static final String SWING = "cwc:swing";
+    /** 内建行为 id——格挡（双手武器主手右键）。实现在迁移那一步注册（旧的 {@code twoHanded: true} 折算成它） */
+    public static final String BLOCK = "cwc:block_use";
+    /** 内建行为 id——副手出刀（短刀）。实现在迁移那一步注册（旧的 {@code offhandAttack: true} 折算成它） */
+    public static final String SWING = "cwc:swing_use";
 
     private static final Map<String, WeaponBehavior> BEHAVIORS = new HashMap<>();
 

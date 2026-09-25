@@ -1,13 +1,16 @@
 package com.funnyb.cwc.crafting;
 
-import com.funnyb.cwc.combat.behavior.BehaviorDecl;
+import com.funnyb.cwc.combat.behavior.BehaviorField;
+import com.funnyb.cwc.combat.behavior.BehaviorRegistry;
 import com.mojang.serialization.Codec;
+import com.mojang.serialization.DataResult;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 import net.minecraft.resources.ResourceLocation;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * 零件类型定义——datapack registry {@code coldweaponcraftsmanship:cwc/part_type} 的条目类型。
@@ -24,17 +27,24 @@ import java.util.Map;
  * @param position     该类型贴图上的安装点（子件安装点）。null 表示默认 (0,0)
  * @param layer        渲染优先级（整数/实数），越大越靠上；null 默认 0
  * @param combat       攻击特征（刃型声明攻击范围/击退加成/普攻方式）。null 表示默认无加成
- * @param twoHanded    是否双手武器（handle 底座占用主手右键格挡，屏蔽副手交互）。默认 false
- *                     —— **已废弃别名**：等价于一条 {@code {hand:"main", button:"use", behavior:"cwc:block", priority:100}}
+ * @param twoHanded    是否双手武器。默认 false
+ *                     —— **已废弃别名**：等价于 {@code mainHandUse = cwc:block_use} **加上**
+ *                     {@code disableOffHand = true}（旧字段同时管"主手右键格挡"与"屏蔽副手"两件事）
  * @param offset       整体贴图偏移（像素，渲染时武器整体平移，改变握持位置）。null 表示无偏移
- * @param offhandAttack 刃型是否可副手右键攻击（放在副手时右键出刀）。默认 false
- *                     —— **已废弃别名**：等价于一条 {@code {hand:"off", button:"use", behavior:"cwc:swing", priority:100}}
- * @param behaviors    行为声明——"装了我就让某只手某个键位做某件事"。见 {@link BehaviorDecl}。
- *                     两个布尔字段与它是**别名关系**，在解析时折算（不在 codec 里折叠，否则 NBT 往返会丢）
+ * @param offhandAttack 刃型是否可副手右键攻击。默认 false
+ *                     —— **已废弃别名**：等价于 {@code offHandUse = cwc:swing_use}
+ * @param mainHandUse  该物品**在主手**时右键做什么。缺失 = 原版 use 路径照旧（放方块/交互）
+ * @param offHandUse   该物品**在副手**时右键做什么。缺失 = 副手右键交给原版
+ * @param attack       该物品的攻击方式——**在哪只手就按那只手读**（短刀在副手时用的就是它）。
+ *                     缺失 = 暂走旧的 {@code combat.style} 那套（本批尚未迁移）
+ * @param disableOffHand 是否屏蔽另一只手的动作（"双手武器占用右键"那条规则）。默认 false。
+ *                     本层按 OR 生效（根 + 直接子件），**子树内部的不外传**
  */
 public record PartTypeDef(Map<String, String> data, List<SlotDef> slots,
                           Position position, Double layer, CombatStyle combat, boolean twoHanded,
-                          Position offset, boolean offhandAttack, List<BehaviorDecl> behaviors) {
+                          Position offset, boolean offhandAttack,
+                          Optional<BehaviorDecl> mainHandUse, Optional<BehaviorDecl> offHandUse,
+                          Optional<BehaviorDecl> attack, boolean disableOffHand) {
 
     /**
      * 缺省值——**用"非空的默认值"而不是 null**。
@@ -66,8 +76,41 @@ public record PartTypeDef(Map<String, String> data, List<SlotDef> slots,
             Codec.BOOL.optionalFieldOf("twoHanded", false).forGetter(PartTypeDef::twoHanded),
             Position.CODEC.optionalFieldOf("offset", NO_POSITION).forGetter(PartTypeDef::offset),
             Codec.BOOL.optionalFieldOf("offhandAttack", false).forGetter(PartTypeDef::offhandAttack),
-            BehaviorDecl.CODEC.listOf().optionalFieldOf("behaviors", List.of()).forGetter(PartTypeDef::behaviors)
+            BehaviorDecl.CODEC.optionalFieldOf("mainHandUse").forGetter(PartTypeDef::mainHandUse),
+            BehaviorDecl.CODEC.optionalFieldOf("offHandUse").forGetter(PartTypeDef::offHandUse),
+            BehaviorDecl.CODEC.optionalFieldOf("attack").forGetter(PartTypeDef::attack),
+            Codec.BOOL.optionalFieldOf("disableOffHand", false).forGetter(PartTypeDef::disableOffHand)
     ).apply(instance, PartTypeDef::new));
+
+    /**
+     * 一个字段的行为声明——JSON 里 {@code "mainHandUse": { "behavior": …, "hud": … }} 那个对象。
+     * <p>
+     * <b>行为与 HUD 是两笔独立的声明</b>（{@code hud} 可省 = 不画）。两者都由**同一套解析机制**选出胜者
+     * （见 {@code BehaviorResolver}：同样的层内优先级、同样的槽位 {@code priority} 表），所以两个行为
+     * 可以共用一个 HUD、一个行为也可以换不同 HUD，不需要引入任何新机制。
+     * <p>
+     * <b>为什么 {@code hud} 不做"必填但可写 null"</b>：DFU 的 {@code JsonOps} 在条目层就把 {@code JsonNull}
+     * 转成 Java null，标准 codec 区分不出"写了 null"与"没写这个键"；而注册表同步要过 NBT 一趟，
+     * NBT 没有 null —— 那样服务端合法的数据到客户端会因为"缺键"解码失败。代价不值得。
+     *
+     * @param behavior 行为 id，必须在 {@link BehaviorRegistry} 注册过（未知 id 在**加载期**报错）
+     * @param hud      HUD id；{@code empty} = 这个行为不画东西。只由客户端解释，所以这里不校验注册
+     *                 （写错时客户端加载会 WARN）
+     */
+    public record BehaviorDecl(String behavior, Optional<String> hud) {
+        public static final Codec<BehaviorDecl> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+                Codec.STRING.fieldOf("behavior").validate(BehaviorDecl::checkRegistered)
+                        .forGetter(BehaviorDecl::behavior),
+                Codec.STRING.optionalFieldOf("hud").forGetter(BehaviorDecl::hud)
+        ).apply(instance, BehaviorDecl::new));
+
+        /** 未知行为 id → 加载期报错（同未知 {@code parser} 的处理：只让这一条数据失败，不中断整个数据包） */
+        private static DataResult<String> checkRegistered(String id) {
+            if (BehaviorRegistry.isRegistered(id)) return DataResult.success(id);
+            return DataResult.error(() -> "未知的行为 behavior=\"" + id + "\"；已注册的有 "
+                    + BehaviorRegistry.registeredIds());
+        }
+    }
 
     public String role() {
         return data.isEmpty() ? "handle_part" : "part";
@@ -108,11 +151,14 @@ public record PartTypeDef(Map<String, String> data, List<SlotDef> slots,
      *                   值是该键允许的取值集合。空表 = 全收
      * @param scale      属性加权系数
      * @param position   槽位在父件贴图上的安装点。null 表示默认 (0,0)
-     * @param behaviors  槽位**代装进来的零件**授予的行为声明（装了才能授予）。空表 = 不授予。
-     *                   装在槽里的零件若声明同一行为且优先级为负，这份授予作废——负优先级的意义所在
+     * @param priority   **装在这个槽里的东西**在本层各字段上的话语权（键是 {@link BehaviorField} 的 JSON 名）。
+     *                   没写某个字段 = 那个东西在该字段上不参与竞争；写了的必须 ≥1。
+     *                   类型自己的声明视作优先级 0（本层默认），所以槽位给的 ≥1 会压过它。
+     *                   **优先级和槽位绑定**：子树内部算出什么优先级都不外传，只以这里的数进入父层。
      */
     public record SlotDef(String name, Map<String, List<String>> constraint,
-                          Map<String, Double> scale, Position position, List<BehaviorDecl> behaviors) {
+                          Map<String, Double> scale, Position position,
+                          Map<String, Integer> priority) {
 
         public static final Codec<SlotDef> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Codec.STRING.fieldOf("name").forGetter(SlotDef::name),
@@ -120,10 +166,40 @@ public record PartTypeDef(Map<String, String> data, List<SlotDef> slots,
                         .optionalFieldOf("constraint", Map.of()).forGetter(SlotDef::constraint),
                 Codec.unboundedMap(Codec.STRING, Codec.DOUBLE)
                         .optionalFieldOf("scale", Map.of()).forGetter(SlotDef::scale),
-                // 缺省用非空的 (0,0)，不能传 null——DFU 的 Applicative 会对 null 组件 NPE
-                Position.CODEC.optionalFieldOf("position", NO_POSITION).forGetter(SlotDef::position),
-                BehaviorDecl.CODEC.listOf().optionalFieldOf("behaviors", List.of()).forGetter(SlotDef::behaviors)
+                // 缺省用非空的 (0,0)，不能传 null——DFU 的 Applicative 会对 null 组件 NPE。
+                // 这里**现造**而不是引用外层的 NO_POSITION：引外层会让"先碰到 SlotDef"的那条路径触发
+                // PartTypeDef 的静态初始化，而后者又要 SlotDef.CODEC（此刻还是 null）→ 成环 NPE。
+                // 游戏里总是先碰 PartTypeDef.CODEC 所以撞不上，但离线检查器（tmp/codeccheck）会。
+                Position.CODEC.optionalFieldOf("position", new Position(0, 0)).forGetter(SlotDef::position),
+                Codec.unboundedMap(Codec.STRING, Codec.INT).optionalFieldOf("priority", Map.of())
+                        .validate(SlotDef::checkPriority).forGetter(SlotDef::priority)
         ).apply(instance, SlotDef::new));
+
+        /**
+         * 该槽位给"装进来的东西"在某个字段上的优先级。没写返回 0 = **不参与竞争**
+         * （类型自己的声明也是 0，那是本层默认；所以 0 这个档刻意不开放给数据写，见 {@link #checkPriority}）。
+         */
+        public int priorityFor(BehaviorField field) {
+            return priority == null ? 0 : priority.getOrDefault(field.jsonName(), 0);
+        }
+
+        /**
+         * 键必须是三个合法字段名之一（把 {@code mainHandUse} 拼成 {@code mainhandUse} 会静默失效，
+         * 所以这里明确报错）；值必须 ≥1——0 会与"本层默认 0"撞成并列，负数与"不写"完全等价、没有存在理由。
+         */
+        private static DataResult<Map<String, Integer>> checkPriority(Map<String, Integer> map) {
+            for (Map.Entry<String, Integer> entry : map.entrySet()) {
+                if (BehaviorField.byJsonName(entry.getKey()) == null) {
+                    return DataResult.error(() -> "槽位 priority 里有未知字段名 \"" + entry.getKey()
+                            + "\"（合法的是 " + BehaviorField.allJsonNames() + "）");
+                }
+                if (entry.getValue() == null || entry.getValue() < 1) {
+                    return DataResult.error(() -> "槽位 priority 里的 \"" + entry.getKey() + "\" 必须 ≥1"
+                            + "（不想让这个槽在该字段上说话，就别写这个键）");
+                }
+            }
+            return DataResult.success(map);
+        }
 
         /**
          * 该槽位是否接受这个类型——**槽位约束匹配的唯一实现**（装配台的放入校验与类型图环检测共用）。
