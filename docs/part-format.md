@@ -41,11 +41,16 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
   "position": { "x": 5, "y": 10 },
   "layer": 900,
   "combat": { "reach": 0.0, "knockback": 0.0, "style": "sweep" },
+  "mainHandUse": { "behavior": "cwc:block_use" },
+  "offHandUse":  { "behavior": "cwc:swing_use", "hud": "cwc:offhand_attack" },
+  "attack":      { "behavior": "cwc:sweep_attack", "hud": "cwc:attack_indicator" },
+  "disableOffHand": false,
   "slots": [
     {
       "name": "slot.cwc.guard",
       "constraint": { "type": ["guard"], "weight": ["light", "middle"] },
-      "position": { "x": 6, "y": 9 }
+      "position": { "x": 6, "y": 9 },
+      "priority": { "mainHandUse": 100, "attack": 100 }
     }
   ]
 }
@@ -58,11 +63,62 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 | `position` | 否 | 本类型贴图上的安装点，默认 `(0,0)`，见下方「锚点对齐」 |
 | `layer` | 否 | 渲染层优先级，**越大越靠上**（底座永远最底），默认 0 |
 | `combat` | 否 | `reach`（交互距离加成）/ `knockback` / `style`（`normal`/`sweep`/`critical`） |
-| `twoHanded` | 否 | 双手武器：占用主手右键（格挡），屏蔽副手交互。默认 false |
+| `twoHanded` | 否 | ⚠ **已废弃别名**，等价于 `"mainHandUse": {"behavior":"cwc:block_use"}` + `"disableOffHand": true` |
 | `offset` | 否 | 整体贴图平移（像素），改变握持位置 |
-| `offhandAttack` | 否 | 可放在副手右键出刀（短刀就是这个） |
+| `offhandAttack` | 否 | ⚠ **已废弃别名**，等价于 `"offHandUse": {"behavior":"cwc:swing_use","hud":"cwc:offhand_attack"}` |
+| `mainHandUse` | 否 | **这件物品在主手时**右键做什么，见「行为与 HUD」 |
+| `offHandUse` | 否 | **这件物品在副手时**右键做什么 |
+| `attack` | 否 | **这件物品的攻击方式**（普攻风格与几何）。在哪只手都读同一份 |
+| `disableOffHand` | 否 | 是否屏蔽**另一只手**的动作（双手武器占用右键那条规则）。默认 false |
 
 **类型只有一种数据形状**，所以没有 `parser` 分派：`data` 是自由键值对，加语义键直接加即可，不需要新 codec。
+
+### 行为与 HUD（`mainHandUse` / `offHandUse` / `attack`）
+
+三个字段的取值都是同一个形状：**`behavior` 必填、`hud` 可省**。
+
+```json
+"offHandUse": { "behavior": "cwc:swing_use", "hud": "cwc:offhand_attack" }
+```
+
+- `behavior` 是**代码侧注册的行为 id**（`BehaviorRegistry`）。本模组内建：
+
+  | id | 用途 | 可挂的字段 |
+  |---|---|---|
+  | `cwc:block_use` | 右键按住格挡（减伤 = 25% + 镡的 `block`） | `mainHandUse` / `offHandUse` |
+  | `cwc:swing_use` | 右键瞬发一次单体攻击，走自己的独立冷却 | `mainHandUse` / `offHandUse` |
+  | `cwc:strike_attack` | 普攻：单体全额、稳定直击、无跳劈暴击 | `attack` |
+  | `cwc:sweep_attack` | 普攻：范围全额伤害（空挥也扫） | `attack` |
+  | `cwc:critical_attack` | 普攻：单体，保留原版跳劈暴击 | `attack` |
+
+  写错 id、或**把行为挂到它不支持的字段上**（例如把 `cwc:sweep_attack` 写进 `mainHandUse`），
+  都会让**那一条数据加载失败**并在日志里报错——不会静默失效。第三方模组可以注册自己的行为，
+  见下方「扩展方式」。
+
+- `hud` 是**客户端画的 HUD**（`BehaviorHudRegistry`），可省 = 不画。内建两个：`cwc:attack_indicator`
+  （攻击指示器那条：未就绪画进度条、就绪且有目标画满格）、`cwc:offhand_attack`（副手出刀那条）。
+  `hud` 写错只在客户端首次绘制时 WARN 一次（数据在服务端加载、HUD 注册在客户端，加载期两边不一定都在场）。
+
+- **行为与 HUD 是两笔独立的声明**，但走**同一套解析**：两者各取"该字段上优先级最高"的那一个，
+  所以两个行为可以共用一个 HUD、一个行为也可以换不同 HUD。
+
+**"哪一个声明生效"由装配树决定**（一个装配体是一层）：
+
+1. 层内每个字段各自比优先级，最大者赢；
+2. **类型自己的声明是本层的默认**（视作优先级 0），槽位给的 ≥1 能压过它；
+3. 优先级**绑在槽位上**（见下），子树内部算出什么优先级都**不外传**——嵌套再深也不能越级夺权；
+4. 槽位没写某个字段 = **那个槽里的东西不参与**该字段；
+5. **并列 = 冲突**：该字段在本层**没有胜者**（不是先到先得）。加载时会对"同一类型两个槽位给同一字段
+   同一优先级"报一条 WARN。
+
+**旧字段的折算（别名）**：`twoHanded` / `offhandAttack` / `combat.style` 仍在读，且**只在整棵树里没人显式
+声明该字段时**才生效（新声明一出现就让位——否则两者都以 0 档入场会并列、把整个字段废掉）。
+三者的等价写法见上表；`combat.style` 的对应关系是 `normal`→`cwc:strike_attack`、
+`sweep`→`cwc:sweep_attack`、`critical`→`cwc:critical_attack`（折算时一并带上 `cwc:attack_indicator` 这个 HUD，
+旧数据因此照样有攻击指示器）。
+
+**`disableOffHand` 按层 OR 生效**（根 + 深度 1 的直接子件），子树内部声明的不外传。它与 `twoHanded` 的
+区别是：`twoHanded` 同时管"主手右键格挡"和"屏蔽副手"，`disableOffHand` 只管后者。
 
 ### `data` 与角色
 
@@ -83,6 +139,7 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 | `constraint` | 匹配约束。**空 `{}` = 全收**；值必须是字符串数组，**不能写 `null`**（会解析失败并报在日志里） |
 | `scale` | 属性加权系数。`{"damage": 1.0, "speed": 0.3}` → 伤害全量计入、速度只计 30%。未声明 `scale` 或缺失某属性时默认 **1（全量）** |
 | `position` | 该槽位在**父件**贴图上的安装点，默认 `(0,0)` |
+| `priority` | **装在这个槽里的东西**在本层各行为字段上的话语权，键只能是 `mainHandUse` / `offHandUse` / `attack`。值必须 ≥1；**不写某个字段 = 那个槽里的东西不参与该字段**（写 `0` 或负数会加载失败） |
 
 **约束匹配的是类型的语义值（如 `"type": "attack"`），不是类型 id。** 所以你自己定义的 `attack` 类型
 会被现有手柄的刀身槽照常接受——这是有意为之，也是"扩展包能复用现有装配结构"的前提。
@@ -162,9 +219,10 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 
 > **`block` 的两点特殊语义（容易误解）：**
 >
-> 1. **只有双手武器格挡时才被读取。** 消费它的 `CwcCombatEvents.onHurt` 要求
->    `player.isUsingItem()` **且** 主手是**双手**底座（`isTwoHandedStack`）。所以装在**单手**武器
->    （手半剑/标准刃/短刃/长刃）上的镡，`block` 会被聚合算出来但**没有任何代码读它**——纯装饰。
+> 1. **只有声明了格挡行为的武器才读得到它。** 消费它的是格挡行为
+>    （`cwc:block_use`，由 `CwcCombatEvents.onHurt` 转发给"玩家正在使用的那件物品"所属的行为）。
+>    所以装在**没有** `mainHandUse`/`offHandUse`（也没有 `twoHanded`）的武器上的镡，`block`
+>    会被聚合算出来但**没有任何代码读它**——纯装饰。
 > 2. **它不会出现在任何 tooltip 上。** `block` 不是原版 attribute，而是一个聚合进装配树的普通数值，
 >    不落任何组件、每次受击现算，只在格挡伤害结算里体现。悬停镡看不到属性行是正常的（镡是普通零件物品，
 >    属性只在**手柄底座**上推导）。
@@ -237,8 +295,18 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
    `ParserRegistry.register("yourmod:foo", codec)` 注册，然后让零件 JSON 的 `"parser"` 指向它。
 4. **读零件定义**：直接用 `registryOrThrow(CwcRegistries.PART)`。
    `AssemblyTree` 提供"从装配树算全部派生量"的现成入口，`PartDef.data()` 直接可读。
+5. **加自己的行为**：实现 `WeaponBehavior`（**无状态单例**），在**任何数据包被解析之前**
+   （模组构造器 / 模组总线事件里）用 `BehaviorRegistry.register(...)` 注册，然后让零件/类型的 JSON
+   把 `behavior` 指向你的 id。`fields()` 声明它能挂在哪些字段上——挂错字段会让那条数据加载失败。
+   需要跨 tick 记忆的动作（蓄力弓那类）返回一个 `BehaviorMachine`。
+6. **加自己的 HUD**：实现 `BehaviorHud`（客户端专用，可以自由用 `GuiGraphics`），在客户端初始化阶段
+   `BehaviorHudRegistry.register(...)`，让 JSON 的 `hud` 指向它。几何/翻转那类现成的画法在
+   `CrosshairBar` 里，直接用，别重写。
+7. **加自己的攻击方式**：`attack` 字段指向的行为覆盖 `strikeStyle` / `canHit` / `hasAnyTarget` / `strike`
+   四个方法即可，具体零件（目标校验、伤害例程、范围几何、无敌帧豁免）从 `CwcCombat` 的公开入口取。
 
 ## 相关
 
 - 零件装在哪、谁接受谁：`AssemblyTree` 与 `PartTypeDef.SlotDef.accepts`
+- 行为如何被选出（五条规则 + 别名兜底）：`BehaviorResolver` 的类注释
 - 数值/材料的设计缺口（两个乘数为何不生效）：`docs/bugs.md` 的「数据设计缺口」一节
