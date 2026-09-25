@@ -61,8 +61,17 @@ public final class BehaviorResolver {
      * 所以离线检查器能自己造几层数据跑（那几条规则错起来全是静默的）。
      */
     public static Map<BehaviorField, FieldResult> resolve(AssemblyTree tree) {
+        return diagnose(tree).winners();
+    }
+
+    /**
+     * 与 {@link #resolve} 同一趟解析，但**多给出并列信息**（哪个字段被并列废掉了、谁在抢、并列在哪一档）。
+     * <p>
+     * 给诊断用（武器 tooltip）。别在每 tick 的路径上调它——那只需要 {@link #behaviorFor}。
+     */
+    public static Diagnosis diagnose(AssemblyTree tree) {
         PartTypeDef root = tree.rootType();
-        if (root == null) return Map.of();
+        if (root == null) return new Diagnosis(Map.of(), Map.of());
 
         List<AssemblyTree.Node> nodes = tree.nodes();
         int count = nodes.size();
@@ -91,18 +100,19 @@ public final class BehaviorResolver {
             AssemblyTree.Node node = nodes.get(i);
             levels.add(new LevelSpec(node.type(), node.partId(), false, false, null, children.get(i + 1)));
         }
-        return resolveLevels(levels);
+        LevelOutcome outcome = resolveLevels(levels);
+        return new Diagnosis(outcome.winners(), outcome.ties());
     }
 
     /**
      * 解析算法本体——**只吃 {@link LevelSpec} 列表**，与物品栈、注册表、{@code AssemblyTree} 全都无关。
      * <p>
      * 约定：每个子件的下标**大于**它的父件（DFS 前序保证），所以倒着遍历一遍就能自底向上算完
-     * （子件先于父件出结果）。返回下标 0 那一层的表。
+     * （子件先于父件出结果）。返回下标 0 那一层的结果。
      */
-    static Map<BehaviorField, FieldResult> resolveLevels(List<LevelSpec> levels) {
+    static LevelOutcome resolveLevels(List<LevelSpec> levels) {
         int count = levels.size();
-        List<Map<BehaviorField, FieldResult>> results = new ArrayList<>(count);
+        List<LevelOutcome> results = new ArrayList<>(count);
         for (int i = 0; i < count; i++) results.add(null);
         for (int i = count - 1; i >= 0; i--) {
             results.set(i, resolveLevel(levels.get(i), results));
@@ -214,8 +224,7 @@ public final class BehaviorResolver {
      */
     record ChildSpec(int index, PartTypeDef.SlotDef slot, String partId) {}
 
-    private static Map<BehaviorField, FieldResult> resolveLevel(LevelSpec level,
-                                                                List<Map<BehaviorField, FieldResult>> results) {
+    private static LevelOutcome resolveLevel(LevelSpec level, List<LevelOutcome> results) {
         Map<BehaviorField, List<Candidate>> candidates = new EnumMap<>(BehaviorField.class);
         for (BehaviorField field : BehaviorField.values()) candidates.put(field, new ArrayList<>());
 
@@ -223,20 +232,20 @@ public final class BehaviorResolver {
         for (BehaviorField field : BehaviorField.values()) {
             declared(level.type(), field).ifPresent(decl ->
                     candidates.get(field).add(new Candidate(0, decl.behavior(), decl.hud().orElse(null),
-                            level.partId(), false)));
+                            level.partId(), null, false)));
         }
 
         // ② 直接子件：以"它所在槽位给这个字段的优先级"进入
         for (ChildSpec child : level.children()) {
-            Map<BehaviorField, FieldResult> childResult = results.get(child.index());
-            if (child.slot() == null || childResult == null) continue;
+            LevelOutcome childOutcome = results.get(child.index());
+            if (child.slot() == null || childOutcome == null) continue;
             for (BehaviorField field : BehaviorField.values()) {
-                FieldResult winner = childResult.get(field);
+                FieldResult winner = childOutcome.winners().get(field);
                 if (winner == null) continue;
                 int priority = child.slot().priorityFor(field);
                 if (priority < 1) continue;      // 槽位没给这个字段说话权 → 子树的结果在这一层不参与
                 candidates.get(field).add(new Candidate(priority, winner.behavior(), winner.hud(),
-                        child.partId(), false));
+                        child.partId(), child.slot().name(), false));
             }
         }
 
@@ -259,13 +268,15 @@ public final class BehaviorResolver {
                     BehaviorHudIds.ATTACK_INDICATOR, "（旧字段 combat.style）");
         }
 
-        // ④ 每字段取最大；并列 → 该字段没有胜者
-        Map<BehaviorField, FieldResult> out = new EnumMap<>(BehaviorField.class);
+        // ④ 每字段裁决；并列 → 该字段没有胜者（但把"并列"记下来，诊断要用）
+        Map<BehaviorField, FieldResult> winners = new EnumMap<>(BehaviorField.class);
+        Map<BehaviorField, Tie> ties = new EnumMap<>(BehaviorField.class);
         for (BehaviorField field : BehaviorField.values()) {
-            FieldResult winner = pick(candidates.get(field));
-            if (winner != null) out.put(field, winner);
+            Pick pick = pick(candidates.get(field));
+            if (pick.winner() != null) winners.put(field, pick.winner());
+            if (pick.tie() != null) ties.put(field, pick.tie());
         }
-        return out;
+        return new LevelOutcome(winners, ties);
     }
 
     /**
@@ -274,20 +285,23 @@ public final class BehaviorResolver {
      * 包内可见是为了让 {@code tmp/codeccheck/BehaviorCheck.java} 能离线跑规则（那几条错得静默，
      * 只在游戏里表现为"某个行为不生效"，很难查）。除了这条检查器，没有别的调用方。
      */
-    static FieldResult pick(List<Candidate> candidates) {
-        if (candidates.isEmpty()) return null;
+    static Pick pick(List<Candidate> candidates) {
+        if (candidates.isEmpty()) return new Pick(null, null);
 
         int best = Integer.MIN_VALUE;
         for (Candidate candidate : candidates) best = Math.max(best, candidate.priority());
-        int topCount = 0;
-        Candidate top = null;
+        List<Candidate> top = new ArrayList<>();
         for (Candidate candidate : candidates) {
-            if (candidate.priority() == best) {
-                topCount++;
-                top = candidate;
-            }
+            if (candidate.priority() == best) top.add(candidate);
         }
-        if (topCount > 1) return null;                       // 并列 = 冲突 → 该字段无胜者
+        if (top.size() > 1) {
+            // 并列 = 冲突 → 该字段无胜者。参与者一并记下来：诊断（武器 tooltip）要报"哪两个槽在抢"
+            List<Participant> participants = new ArrayList<>(top.size());
+            for (Candidate candidate : top) {
+                participants.add(new Participant(candidate.slotName(), candidate.partId(), candidate.fromAlias()));
+            }
+            return new Pick(null, new Tie(best, List.copyOf(participants)));
+        }
 
         // HUD 独立选：在带 hud 的候选里取最高档；若最高档也并列，则只有 HUD 无胜者（行为不受影响）
         int hudBest = Integer.MIN_VALUE;
@@ -306,7 +320,7 @@ public final class BehaviorResolver {
             }
             if (hudTopCount == 1) hud = hudTop;
         }
-        return new FieldResult(top.behavior(), hud, best);
+        return new Pick(new FieldResult(top.get(0).behavior(), hud, best), null);
     }
 
     private static java.util.Optional<PartTypeDef.BehaviorDecl> declared(PartTypeDef type, BehaviorField field) {
@@ -326,7 +340,7 @@ public final class BehaviorResolver {
         for (Candidate candidate : candidates.get(field)) {
             if (!candidate.fromAlias()) return;      // 有人显式声明了 → 别名让位
         }
-        candidates.get(field).add(new Candidate(0, behavior, hud, partId, true));
+        candidates.get(field).add(new Candidate(0, behavior, hud, partId, null, true));
     }
 
     /** 旧的 {@code combat.style} → 攻击方式行为 id */
@@ -338,8 +352,42 @@ public final class BehaviorResolver {
         };
     }
 
-    /** 一个候选：优先级 + 行为/HUD id + 来自谁（诊断用）+ 是否来自旧字段别名 */
-    public record Candidate(int priority, String behavior, String hud, String partId, boolean fromAlias) {}
+    /**
+     * 一个候选：优先级 + 行为/HUD id + 来自谁（诊断用）+ 是否来自旧字段别名。
+     *
+     * @param slotName 这个候选是从哪个槽位进来的（槽位有语言键，诊断里报它比报零件 id 可读）；
+     *                 本层类型自己的声明与旧字段别名为 null
+     */
+    public record Candidate(int priority, String behavior, String hud, String partId, String slotName,
+                            boolean fromAlias) {}
+
+    /** 一层解析完的结果：有胜者的字段 + 并列的字段（并列意味着**没有**胜者，见 {@link Tie}） */
+    record LevelOutcome(Map<BehaviorField, FieldResult> winners, Map<BehaviorField, Tie> ties) {}
+
+    /**
+     * 整件武器的诊断——胜者与并列各一张表。
+     * <p>
+     * 存在的理由是"并列"没有别的观察窗口：{@link #resolve} 只给胜者，于是"该字段被并列废掉了"与
+     * "该字段没人声明"在调用方看来一模一样。武器的 tooltip 用这个把结论显示出来（见 {@code CwcWeapon}）。
+     */
+    public record Diagnosis(Map<BehaviorField, FieldResult> winners, Map<BehaviorField, Tie> ties) {}
+
+    /**
+     * 一个字段的裁决——**至多一个非 null**：
+     * 有胜者时 {@code winner} 非 null、{@code tie} 为 null；并列时反过来；没有候选时两者都是 null。
+     */
+    record Pick(FieldResult winner, Tie tie) {}
+
+    /**
+     * 并列——最高档上有多个候选，于是该字段在本层没有胜者（作者定的"并列 = 冲突，不是先到先得"）。
+     *
+     * @param priority     并列发生在哪一档（数据作者改槽位 {@code priority} 时看的就是这个数）
+     * @param participants 并列的参与者（正常是"两个槽都在声明"）
+     */
+    public record Tie(int priority, List<Participant> participants) {}
+
+    /** 并列的一方：来自哪个槽位（别名/本层声明为 null）+ 哪个零件 + 是不是旧字段别名 */
+    public record Participant(String slotName, String partId, boolean fromAlias) {}
 
     /**
      * 某个字段在本层的胜出结果。

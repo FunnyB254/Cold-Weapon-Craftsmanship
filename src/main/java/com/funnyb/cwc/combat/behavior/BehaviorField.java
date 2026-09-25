@@ -31,6 +31,16 @@ public enum BehaviorField {
         return jsonName;
     }
 
+    /**
+     * tooltip 行首标签的语言键（如 {@code 主手右键：}）。
+     * <p>
+     * 与 {@link #jsonName()} 同一个来源，所以"标签写的是哪个字段"和"JSON 里写的哪个键"永远对得上
+     * （手写第二份拼写表必然会漂移）。
+     */
+    public String labelKey() {
+        return "tooltip.cwc.behavior." + jsonName;
+    }
+
     /** 按 JSON 键名查；未知返回 null（调用方负责报错，消息里应列出全部合法键） */
     public static BehaviorField byJsonName(String name) {
         for (BehaviorField field : values()) {

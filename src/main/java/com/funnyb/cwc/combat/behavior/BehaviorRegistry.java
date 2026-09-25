@@ -1,5 +1,7 @@
 package com.funnyb.cwc.combat.behavior;
 
+import net.minecraft.resources.ResourceLocation;
+
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -76,5 +78,18 @@ public final class BehaviorRegistry {
             if (behavior.fields().contains(field)) ids.add(behavior.id());
         }
         return ids;
+    }
+
+    /**
+     * 行为的**显示名**语言键——{@code behavior.<命名空间>.<路径以 . 连接>}，与零件/类型的显示名同一条约定
+     * （见 {@code PartDef.langKey}）。
+     * <p>
+     * 没写语言的 id 由调用方回落成显示 id 本身（见 {@code CwcWeapon.behaviorName}），所以第三方只注册行为、
+     * 不提供语言也能用，只是 tooltip 上显示的是那个 id。
+     */
+    public static String langKey(String id) {
+        ResourceLocation key = ResourceLocation.tryParse(id);
+        if (key == null) return "behavior." + id;      // id 不合法时给个可读的兜底，别让 tooltip 炸
+        return "behavior." + key.getNamespace() + "." + key.getPath().replace('/', '.');
     }
 }
