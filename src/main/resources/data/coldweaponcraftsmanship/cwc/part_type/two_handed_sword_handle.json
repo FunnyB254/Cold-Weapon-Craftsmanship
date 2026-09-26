@@ -29,6 +29,9 @@
         "x": 10,
         "y": 5
       },
+      "scale": {
+        "speed": 0.5
+      },
       "priority": {
         "mainHandUse": 100,
         "offHandUse": 100,
