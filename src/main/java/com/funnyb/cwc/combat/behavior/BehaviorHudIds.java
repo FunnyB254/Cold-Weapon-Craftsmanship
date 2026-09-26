@@ -14,13 +14,13 @@ public final class BehaviorHudIds {
 
     /**
      * 主手攻击指示器（准星下方那条）：冷却进度条 / 满格图标。
-     * 挂在 {@code attack} 字段上——所有 CWC 武器都画（旧 {@code combat.style} 折算时带上）。
+     * 挂在 {@code attack} 字段上——数据里由刃（或手柄的默认）声明。
      */
     public static final String ATTACK_INDICATOR = "cwc:attack_indicator";
 
     /**
      * 副手出刀指示器（准星上方那条，主手那条的镜像）。挂在 {@code offHandUse} 字段上
-     * ——旧 {@code offhandAttack: true} 折算时带上，所以旧数据不用改也照画。
+     * ——数据里由短刃声明。
      */
     public static final String OFFHAND_ATTACK = "cwc:offhand_attack";
 

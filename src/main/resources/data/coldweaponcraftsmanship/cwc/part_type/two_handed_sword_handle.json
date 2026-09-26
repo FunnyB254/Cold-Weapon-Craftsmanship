@@ -1,7 +1,14 @@
 {
   "data": {},
   "layer": 1000,
-  "twoHanded": true,
+  "mainHandUse": {
+    "behavior": "cwc:block_use"
+  },
+  "disableOffHand": true,
+  "attack": {
+    "behavior": "cwc:strike_attack",
+    "hud": "cwc:attack_indicator"
+  },
   "offset": {
     "x": -5,
     "y": -5
@@ -24,6 +31,10 @@
       "position": {
         "x": 10,
         "y": 5
+      },
+      "priority": {
+        "attack": 100,
+        "offHandUse": 100
       }
     },
     {

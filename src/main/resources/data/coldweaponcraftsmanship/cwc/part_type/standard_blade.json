@@ -11,8 +11,11 @@
   "layer": 900,
   "combat": {
     "reach": 0.0,
-    "knockback": 0.0,
-    "style": "sweep"
+    "knockback": 0.0
+  },
+  "attack": {
+    "behavior": "cwc:sweep_attack",
+    "hud": "cwc:attack_indicator"
   },
   "slots": [
     {

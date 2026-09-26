@@ -11,10 +11,16 @@
   "layer": 900,
   "combat": {
     "reach": 0.0,
-    "knockback": 0.0,
-    "style": "normal"
+    "knockback": 0.0
   },
-  "offhandAttack": true,
+  "attack": {
+    "behavior": "cwc:strike_attack",
+    "hud": "cwc:attack_indicator"
+  },
+  "offHandUse": {
+    "behavior": "cwc:swing_use",
+    "hud": "cwc:offhand_attack"
+  },
   "slots": [
     {
       "name": "slot.cwc.guard",

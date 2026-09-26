@@ -40,7 +40,7 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
   "data": { "type": "attack", "mount": "tang", "weight": "middle" },
   "position": { "x": 5, "y": 10 },
   "layer": 900,
-  "combat": { "reach": 0.0, "knockback": 0.0, "style": "sweep" },
+  "combat": { "reach": 0.0, "knockback": 0.0 },
   "mainHandUse": { "behavior": "cwc:block_use" },
   "offHandUse":  { "behavior": "cwc:swing_use", "hud": "cwc:offhand_attack" },
   "attack":      { "behavior": "cwc:sweep_attack", "hud": "cwc:attack_indicator" },
@@ -62,10 +62,8 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 | `slots` | 否 | 可安装的子件槽位。空数组 `[]` = 不能接收其他零件 |
 | `position` | 否 | 本类型贴图上的安装点，默认 `(0,0)`，见下方「锚点对齐」 |
 | `layer` | 否 | 渲染层优先级，**越大越靠上**（底座永远最底），默认 0 |
-| `combat` | 否 | `reach`（交互距离加成）/ `knockback` / `style`（`normal`/`sweep`/`critical`） |
-| `twoHanded` | 否 | ⚠ **已废弃别名**，等价于 `"mainHandUse": {"behavior":"cwc:block_use"}` + `"disableOffHand": true` |
+| `combat` | 否 | 攻击几何：`reach`（交互距离加成）/ `knockback`。普攻方式不在这里，见 `attack` |
 | `offset` | 否 | 整体贴图平移（像素），改变握持位置 |
-| `offhandAttack` | 否 | ⚠ **已废弃别名**，等价于 `"offHandUse": {"behavior":"cwc:swing_use","hud":"cwc:offhand_attack"}` |
 | `mainHandUse` | 否 | **这件物品在主手时**右键做什么，见「行为与 HUD」 |
 | `offHandUse` | 否 | **这件物品在副手时**右键做什么 |
 | `attack` | 否 | **这件物品的攻击方式**（普攻风格与几何）。在哪只手都读同一份 |
@@ -116,14 +114,18 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 （`攻击方式：刃槽 / 副刃槽 的优先级同为 100，该动作不会生效`）。这是"这件武器到底能做什么"以及
 "某个动作为什么没反应"的唯一界面入口——装配台底座槽、背包、JEI 看到的是同一份。
 
-**旧字段的折算（别名）**：`twoHanded` / `offhandAttack` / `combat.style` 仍在读，且**只在整棵树里没人显式
-声明该字段时**才生效（新声明一出现就让位——否则两者都以 0 档入场会并列、把整个字段废掉）。
-三者的等价写法见上表；`combat.style` 的对应关系是 `normal`→`cwc:strike_attack`、
-`sweep`→`cwc:sweep_attack`、`critical`→`cwc:critical_attack`（折算时一并带上 `cwc:attack_indicator` 这个 HUD，
-旧数据因此照样有攻击指示器）。
+**三个旧键已废弃**：`twoHanded`、`offhandAttack`、`combat.style` 写了会让**那一条类型定义加载失败**，
+并在日志里报出替代写法（留着它们的唯一目的就是报错——DFU 会静默忽略不认识的键，那意味着旧数据照常加载
+却行为消失，比加载失败危险得多）。替代关系：
 
-**`disableOffHand` 按层 OR 生效**（根 + 深度 1 的直接子件），子树内部声明的不外传。它与 `twoHanded` 的
-区别是：`twoHanded` 同时管"主手右键格挡"和"屏蔽副手"，`disableOffHand` 只管后者。
+| 旧键 | 改成 |
+|---|---|
+| `"twoHanded": true` | `"mainHandUse": {"behavior":"cwc:block_use"}` + `"disableOffHand": true` |
+| `"offhandAttack": true` | `"offHandUse": {"behavior":"cwc:swing_use","hud":"cwc:offhand_attack"}` |
+| `"combat": {"style": "sweep"}` | `"attack": {"behavior":"cwc:sweep_attack","hud":"cwc:attack_indicator"}`（`normal`/`critical` 同理换成 `cwc:strike_attack` / `cwc:critical_attack`） |
+
+**`disableOffHand` 按层 OR 生效**（根 + 深度 1 的直接子件），子树内部声明的不外传。
+（旧 `twoHanded` 同时管"主手右键格挡"和"屏蔽副手"两件事，所以它拆成了上表那两笔。）
 
 ### `data` 与角色
 
@@ -144,7 +146,7 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 | `constraint` | 匹配约束。**空 `{}` = 全收**；值必须是字符串数组，**不能写 `null`**（会解析失败并报在日志里） |
 | `scale` | 属性加权系数。`{"damage": 1.0, "speed": 0.3}` → 伤害全量计入、速度只计 30%。未声明 `scale` 或缺失某属性时默认 **1（全量）** |
 | `position` | 该槽位在**父件**贴图上的安装点，默认 `(0,0)` |
-| `priority` | **装在这个槽里的东西**在本层各行为字段上的话语权，键只能是 `mainHandUse` / `offHandUse` / `attack`。值必须 ≥1；**不写某个字段 = 那个槽里的东西不参与该字段**（写 `0` 或负数会加载失败） |
+| `priority` | **装在这个槽里的东西**在本层各行为字段上的话语权，键只能是 `mainHandUse` / `offHandUse` / `attack`。值必须 ≥1；**不写某个字段 = 那个槽里的东西不参与该字段**（写 `0` 或负数会加载失败）。本模组的用法：手柄的**刀身槽**给 `attack`/`offHandUse` 各 100，于是刃自己的声明压过手柄的默认（裸手柄靠手柄的默认兜底） |
 
 **约束匹配的是类型的语义值（如 `"type": "attack"`），不是类型 id。** 所以你自己定义的 `attack` 类型
 会被现有手柄的刀身槽照常接受——这是有意为之，也是"扩展包能复用现有装配结构"的前提。
@@ -226,7 +228,7 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 >
 > 1. **只有声明了格挡行为的武器才读得到它。** 消费它的是格挡行为
 >    （`cwc:block_use`，由 `CwcCombatEvents.onHurt` 转发给"玩家正在使用的那件物品"所属的行为）。
->    所以装在**没有** `mainHandUse`/`offHandUse`（也没有 `twoHanded`）的武器上的镡，`block`
+>    所以装在**没有** `mainHandUse`/`offHandUse` 的武器上的镡，`block`
 >    会被聚合算出来但**没有任何代码读它**——纯装饰。
 > 2. **它不会出现在任何 tooltip 上。** `block` 不是原版 attribute，而是一个聚合进装配树的普通数值，
 >    不落任何组件、每次受击现算，只在格挡伤害结算里体现。悬停镡看不到属性行是正常的（镡是普通零件物品，
@@ -313,5 +315,5 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 ## 相关
 
 - 零件装在哪、谁接受谁：`AssemblyTree` 与 `PartTypeDef.SlotDef.accepts`
-- 行为如何被选出（五条规则 + 别名兜底）：`BehaviorResolver` 的类注释
+- 行为如何被选出（五条规则）：`BehaviorResolver` 的类注释
 - 数值/材料的设计缺口（两个乘数为何不生效）：`docs/bugs.md` 的「数据设计缺口」一节

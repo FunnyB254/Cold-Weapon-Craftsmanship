@@ -1,6 +1,10 @@
 {
   "data": {},
   "layer": 1000,
+  "attack": {
+    "behavior": "cwc:strike_attack",
+    "hud": "cwc:attack_indicator"
+  },
   "slots": [
     {
       "name": "slot.cwc.blade",
@@ -19,6 +23,10 @@
       "position": {
         "x": 5,
         "y": 10
+      },
+      "priority": {
+        "attack": 100,
+        "offHandUse": 100
       }
     },
     {

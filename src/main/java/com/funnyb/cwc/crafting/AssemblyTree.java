@@ -56,8 +56,6 @@ public final class AssemblyTree {
     private final double block;
     private final double reach;
     private final double knockback;
-    private final boolean offhandAttack;
-    private final PartTypeDef.AttackStyle attackStyle;
 
     private AssemblyTree(String rootId, Map<String, PartNode> slots) {
         this.rootId = rootId;
@@ -75,20 +73,15 @@ public final class AssemblyTree {
         double accDamage = 0.0, accSpeed = 0.0, accDurability = 0.0, accBlock = 0.0;
         double foundReach = 0.0, foundKnockback = 0.0;
         boolean foundAttack = false;
-        boolean anyOffhand = false;
-        PartTypeDef.AttackStyle foundStyle = null;
 
-        // 根节点自身也参与判定——与旧的 CwcWeapon.hasOffhandAttack / findAttackStyle 口径一致
-        // （它们都先看当前栈自身的类型，再递归子件）。根节点没有"所在槽位"，权重按 1.0。
+        // 根节点自身也参与判定。根节点没有"所在槽位"，权重按 1.0。
         if (rootType != null) {
             accDamage += attr(rootDef, "damage");
             accSpeed += attr(rootDef, "speed");
             accDurability += attr(rootDef, "durability");
             if (isGuard(rootType)) accBlock += attr(rootDef, "block");
-            if (rootType.offhandAttack()) anyOffhand = true;
             if (isAttack(rootType)) {
                 foundAttack = true;
-                foundStyle = rootType.attackStyle();
                 foundReach = rootType.combatReach();
                 foundKnockback = rootType.combatKnockback();
             }
@@ -101,11 +94,9 @@ public final class AssemblyTree {
             accDurability += attr(node.def(), "durability") * weight(slot, "durability");
             // 格挡减伤不走槽位权重（与原实现一致，裸加）
             if (isGuard(node.type())) accBlock += attr(node.def(), "block");
-            if (node.type().offhandAttack()) anyOffhand = true;
             // reach/knockback 只取遇到的第一个 attack 型节点，取到后不再覆盖（遍历序 = 声明序，确定性）
             if (!foundAttack && isAttack(node.type())) {
                 foundAttack = true;
-                foundStyle = node.type().attackStyle();
                 foundReach = node.type().combatReach();
                 foundKnockback = node.type().combatKnockback();
             }
@@ -117,8 +108,6 @@ public final class AssemblyTree {
         this.block = accBlock;
         this.reach = foundReach;
         this.knockback = foundKnockback;
-        this.offhandAttack = anyOffhand;
-        this.attackStyle = foundStyle != null ? foundStyle : PartTypeDef.AttackStyle.NORMAL;
     }
 
     // ──── 入口 ────
@@ -165,10 +154,6 @@ public final class AssemblyTree {
     public double reach() { return reach; }
     /** 击退加成——取第一个 attack 型节点的声明值 */
     public double knockback() { return knockback; }
-    /** 是否可副手出刀——树中任一节点（含根）声明了 offhandAttack */
-    public boolean offhandAttack() { return offhandAttack; }
-    /** 普攻方式——第一个 attack 型节点的 style，没有则 NORMAL */
-    public PartTypeDef.AttackStyle attackStyle() { return attackStyle; }
 
     // ──── 内部 ────
 

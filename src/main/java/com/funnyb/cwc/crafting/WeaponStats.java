@@ -112,17 +112,30 @@ public final class WeaponStats {
                 : 0;
 
         if (expected <= 0) {
-            // 未装配 / 零件完全不贡献耐久 → 不该有耐久上限
-            if (stack.has(DataComponents.MAX_DAMAGE)) stack.remove(DataComponents.MAX_DAMAGE);
+            // 未装配 / 零件完全不贡献耐久 → 回落到**物品自带**的上限（底座自己是个会被磨损的物品）。
+            // 这里**不能**用 remove()：那会在补丁里写下"移除"、把物品原型上的值也盖掉，于是上限变 0、
+            // 裸手柄变得不可损坏——而它与"空手"的差别本来只该是"它有耐久"。写成原型值即可解开这层遮蔽。
+            int base = stack.getPrototype().getOrDefault(DataComponents.MAX_DAMAGE, 0);
+            if (base <= 0) return;
+            if (stack.getOrDefault(DataComponents.MAX_DAMAGE, -1) != base) {
+                stack.set(DataComponents.MAX_DAMAGE, base);
+            }
+            clampDamage(stack, base);
             return;
         }
         if (stack.getOrDefault(DataComponents.MAX_DAMAGE, 0) == expected) return;   // 已一致：不碰组件
 
         stack.set(DataComponents.MAX_DAMAGE, expected);
-        // 拆掉贡献耐久的零件后，已累积的损耗可能超过新的上限——夹一下。
-        // 不夹的话 getBarWidth() 会算出负宽度（它没有 clamp），耐久条渲染会出问题。
-        if (stack.getDamageValue() > expected) {
-            stack.set(DataComponents.DAMAGE, expected);
+        clampDamage(stack, expected);
+    }
+
+    /**
+     * 拆掉贡献耐久的零件后，已累积的损耗可能超过新的上限——夹一下。
+     * 不夹的话 {@code getBarWidth()} 会算出负宽度（它没有 clamp），耐久条渲染会出问题。
+     */
+    private static void clampDamage(ItemStack stack, int maxDamage) {
+        if (stack.getDamageValue() > maxDamage) {
+            stack.set(DataComponents.DAMAGE, maxDamage);
         }
     }
 }
