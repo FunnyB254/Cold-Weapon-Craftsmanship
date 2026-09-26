@@ -13,11 +13,12 @@ import net.minecraft.world.item.ItemStack;
 /**
  * 一个 HUD（{@code hud} 字段的实现）——**客户端侧的独立注册表**，注册在 {@link BehaviorHudRegistry}。
  * <p>
- * 与 {@link WeaponBehavior} 的关系是"同一套解析机制、两笔独立注册"：
+ * 与 {@link WeaponBehavior} 的关系是"同一笔声明里的两半、两份注册表"：
  * <ul>
  *   <li>JSON 里同一个字段对象下并排写着 {@code behavior} 与 {@code hud} 两个 id；</li>
- *   <li>两者**各自**作为候选参与同样的层内优先级解析（见 {@code BehaviorResolver}），
- *       所以两个行为可以共用一个 HUD、一个行为也可以换不同 HUD，不需要任何新机制；</li>
+ *   <li>那个对象是**一笔声明**：行为按层内优先级胜出时，HUD 就是**它自己写的那个**——不从别的候选取
+ *       （否则 HUD 会配上一个它没预期的行为）。想让两个行为共用一个 HUD，在各自的声明里写同一个
+ *       hud id 即可（见 {@code BehaviorResolver} 的「HUD 跟着行为走」）；</li>
  *   <li>这边可以自由用 {@code GuiGraphics}——行为那边不可以（它在通用侧，会踩 RuntimeDistCleaner）。</li>
  * </ul>
  * <b>没写 {@code hud} 的字段不画东西</b>：HUD 是可选的，不是行为必须配一份。
