@@ -1,9 +1,6 @@
 {
   "data": {},
   "layer": 1000,
-  "mainHandUse": {
-    "behavior": "cwc:block_use"
-  },
   "disableOffHand": true,
   "attack": {
     "behavior": "cwc:strike_attack",
@@ -33,8 +30,9 @@
         "y": 5
       },
       "priority": {
-        "attack": 100,
-        "offHandUse": 100
+        "mainHandUse": 100,
+        "offHandUse": 100,
+        "attack": 100
       }
     },
     {

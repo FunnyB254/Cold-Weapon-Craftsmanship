@@ -17,6 +17,9 @@
     "behavior": "cwc:sweep_attack",
     "hud": "cwc:attack_indicator"
   },
+  "mainHandUse": {
+    "behavior": "cwc:block_use"
+  },
   "slots": [
     {
       "name": "slot.cwc.guard",
