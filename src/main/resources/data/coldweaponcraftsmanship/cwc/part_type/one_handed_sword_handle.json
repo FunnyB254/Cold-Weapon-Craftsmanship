@@ -25,7 +25,6 @@
         "y": 10
       },
       "priority": {
-        "mainHandUse": 100,
         "offHandUse": 100,
         "attack": 100
       }
