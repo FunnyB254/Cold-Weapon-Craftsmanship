@@ -29,11 +29,10 @@ import java.util.Optional;
  *       ——那会让结果取决于遍历顺序，而遍历顺序是实现的私事，数据包作者无从预期。</li>
  * </ol>
  *
- * <h2>行为与 HUD 各自选</h2>
- * 同一个字段下的 {@code behavior} 与 {@code hud} 是**两笔独立的声明**，但走**同一套**上面的规则：
- * 行为取该字段优先级最高者；HUD 取"**带 hud 的**候选里优先级最高者"。于是两个行为可以共用一个 HUD、
- * 一个行为也可以换不同 HUD，而不需要引入任何新机制。（若带 hud 的候选在最高档并列，则 HUD 无胜者、
- * 行为不受影响。）
+ * <h2>HUD 跟着行为走</h2>
+ * JSON 里 {@code {"behavior": …, "hud": …}} 那个对象是**一笔声明**：行为胜出时，HUD 就是它自己写的那个
+ * （没写就没有）。**不从别的候选里取**——否则 HUD 会配上一个它没预期的行为。想让两个行为共用一个 HUD，
+ * 在各自的声明里写同一个 hud id 即可（更直白）。
  *
  * <h2>没有别名折算</h2>
  * 三个字段就是全部来源。早期那三个旧键（{@code twoHanded} / {@code offhandAttack} / {@code combat.style}）
@@ -254,7 +253,7 @@ public final class BehaviorResolver {
     }
 
     /**
-     * 从候选里挑胜者：行为取最高档、HUD 取"带 hud 的"最高档；最高档并列 → 该字段无胜者。
+     * 从候选里挑胜者：行为取最高档，**HUD 就是胜者自己声明的那笔**；最高档并列 → 该字段无胜者。
      * <p>
      * 包内可见是为了让 {@code tmp/codeccheck/BehaviorCheck.java} 能离线跑规则（那几条错得静默，
      * 只在游戏里表现为"某个行为不生效"，很难查）。除了这条检查器，没有别的调用方。
@@ -277,24 +276,10 @@ public final class BehaviorResolver {
             return new Pick(null, new Tie(best, List.copyOf(participants)));
         }
 
-        // HUD 独立选：在带 hud 的候选里取最高档；若最高档也并列，则只有 HUD 无胜者（行为不受影响）
-        int hudBest = Integer.MIN_VALUE;
-        for (Candidate candidate : candidates) {
-            if (candidate.hud() != null) hudBest = Math.max(hudBest, candidate.priority());
-        }
-        String hud = null;
-        if (hudBest != Integer.MIN_VALUE) {
-            int hudTopCount = 0;
-            String hudTop = null;
-            for (Candidate candidate : candidates) {
-                if (candidate.priority() == hudBest && candidate.hud() != null) {
-                    hudTopCount++;
-                    hudTop = candidate.hud();
-                }
-            }
-            if (hudTopCount == 1) hud = hudTop;
-        }
-        return new Pick(new FieldResult(top.get(0).behavior(), hud, best), null);
+        // HUD 跟着胜者走——它就是**这笔声明**里写的那个，没写就没有。
+        // 不跨候选取：JSON 里那个对象是一笔声明，behavior 与 hud 一起被选中（作者 2026-09-26 定）。
+        // 想让两个行为共用一个 HUD，就在各自的声明里写同一个 hud id。
+        return new Pick(new FieldResult(top.get(0).behavior(), top.get(0).hud(), best), null);
     }
 
     private static java.util.Optional<PartTypeDef.BehaviorDecl> declared(PartTypeDef type, BehaviorField field) {
@@ -345,7 +330,7 @@ public final class BehaviorResolver {
      * 某个字段在本层的胜出结果。
      *
      * @param behavior 行为 id（拿去 {@link BehaviorRegistry#get} 取实现）
-     * @param hud      HUD id；null = 这个字段不画东西
+     * @param hud      HUD id——**胜出那笔声明里写的那个**；null = 这个字段不画东西
      * @param priority 胜出时用的优先级（诊断用）
      */
     public record FieldResult(String behavior, String hud, int priority) {}

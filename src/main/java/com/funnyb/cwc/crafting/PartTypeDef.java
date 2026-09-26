@@ -114,9 +114,10 @@ public record PartTypeDef(Map<String, String> data, List<SlotDef> slots,
     /**
      * 一个字段的行为声明——JSON 里 {@code "mainHandUse": { "behavior": …, "hud": … }} 那个对象。
      * <p>
-     * <b>行为与 HUD 是两笔独立的声明</b>（{@code hud} 可省 = 不画）。两者都由**同一套解析机制**选出胜者
-     * （见 {@code BehaviorResolver}：同样的层内优先级、同样的槽位 {@code priority} 表），所以两个行为
-     * 可以共用一个 HUD、一个行为也可以换不同 HUD，不需要引入任何新机制。
+     * <b>{@code behavior} 与 {@code hud} 是一笔声明里的两半</b>（{@code hud} 可省 = 不画）：
+     * 行为按层内优先级与槽位 {@code priority} 胜出，**HUD 就是胜出那笔自己写的那个**——
+     * 不从别的候选里取（否则 HUD 会配上一个它没预期的行为）。想让两个行为共用一个 HUD，
+     * 在各自的声明里写同一个 hud id 即可。
      * <p>
      * <b>为什么 {@code hud} 不做"必填但可写 null"</b>：DFU 的 {@code JsonOps} 在条目层就把 {@code JsonNull}
      * 转成 Java null，标准 codec 区分不出"写了 null"与"没写这个键"；而注册表同步要过 NBT 一趟，
