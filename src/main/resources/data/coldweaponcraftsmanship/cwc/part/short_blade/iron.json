@@ -8,7 +8,7 @@
       "toughnessMultiplier": 0
     },
     "speed": {
-      "base": 1.0,
+      "base": -1.4,
       "hardnessMultiplier": 0,
       "toughnessMultiplier": 0
     },

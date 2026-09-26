@@ -144,7 +144,7 @@ public final class AssemblyTree {
 
     /** 攻击伤害加成——按各节点所在槽位的权重加权累加 */
     public double damage() { return damage; }
-    /** 攻速加成（写入时再叠加基础 -2.4） */
+    /** 攻速贡献——**绝对量**（最终攻速 = 玩家基础 4.0 + 它），模组不再叠加固定基准 */
     public double speed() { return speed; }
     /** 耐久上限 */
     public double durability() { return durability; }

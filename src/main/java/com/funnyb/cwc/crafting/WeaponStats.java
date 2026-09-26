@@ -27,9 +27,6 @@ import net.minecraft.world.item.component.ItemAttributeModifiers;
  */
 public final class WeaponStats {
 
-    /** 攻击速度基础 modifier（与原版剑一致，实际攻速 = 4 + modifier） */
-    private static final double BASE_ATTACK_SPEED = -2.4;
-
     /**
      * modifier 稳定 id——同一 id 在属性表里整体替换，避免叠加。
      * <p>
@@ -70,10 +67,16 @@ public final class WeaponStats {
         var builder = ItemAttributeModifiers.builder()
                 .add(Attributes.ATTACK_DAMAGE,
                         new AttributeModifier(DMG_ID, tree.damage(), AttributeModifier.Operation.ADD_VALUE),
-                        EquipmentSlotGroup.MAINHAND)
-                .add(Attributes.ATTACK_SPEED,
-                        new AttributeModifier(SPD_ID, BASE_ATTACK_SPEED + tree.speed(), AttributeModifier.Operation.ADD_VALUE),
                         EquipmentSlotGroup.MAINHAND);
+        // 攻速：零件给的**绝对贡献**（最终攻速 = 玩家基础 4.0 + 这里）。模组不再固定偏移——
+        // 那笔"装好零件就 −2.4"过去藏在代码里，于是"手柄/刃谁决定攻速"在数据上无从表达；
+        // 现在它由刃的 speed 承担（见 docs/part-format.md 的属性键表）。0 就不写，免得 tooltip
+        // 多一行没有意义的"攻速 4"。
+        if (tree.speed() != 0.0) {
+            builder.add(Attributes.ATTACK_SPEED,
+                    new AttributeModifier(SPD_ID, tree.speed(), AttributeModifier.Operation.ADD_VALUE),
+                    EquipmentSlotGroup.MAINHAND);
+        }
         // 加成非 0 才写入，避免无刃/平衡刃武器带多余 modifier
         if (tree.knockback() != 0.0) {
             builder.add(Attributes.ATTACK_KNOCKBACK,
