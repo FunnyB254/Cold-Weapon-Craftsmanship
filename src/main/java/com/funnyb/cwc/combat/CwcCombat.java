@@ -21,7 +21,6 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.OwnableEntity;
-import net.minecraft.world.entity.animal.horse.AbstractHorse;
 import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
@@ -495,17 +494,18 @@ public final class CwcCombat {
     }
 
     /**
-     * 横扫**副目标**的友军过滤——只认"**我自己的**宠物与坐骑"，不认别人的。
+     * 横扫**副目标**的友军过滤——**我这条线上的人与东西都不卷进来**。
      * <p>
      * 规则（作者定）：
      * <ul>
-     *   <li>横扫**不打自己的**宠物 / 坐骑（认主的 {@link OwnableEntity}，owner 就是我）；</li>
-     *   <li>横扫**不打队友的坐骑**（作者 2026-09-27 补的一条：队友可以把马停在战场边上，
-     *       顺手扫死它比误伤队友更难受）；判据见 {@link CwcOwnership#ownerTeamMatches}；</li>
-     *   <li>横扫**照打别人的宠物**——**包括队友的**，与原版一致（原版打宠物从不看队伍）；</li>
-     *   <li>**队友**：副目标**一律不卷进来**（友伤开着也一样）。队友只能靠**准星正对**打中——
+     *   <li>**队友本人**：副目标**一律不卷进来**（友伤开着也一样）。队友只能靠**准星正对**打中——
      *       那条走主目标路径，由 {@link #canHarmAlly} 按队伍的 {@code friendlyFire} 裁定；</li>
-     *   <li>准星**正对**的宠物**照打**：同上，主目标路径。所以本方法**不得**用到主目标判定上。</li>
+     *   <li>**我 / 我队友的**宠物与坐骑：不卷进来（认主的 {@link OwnableEntity}，判据
+     *       {@link CwcOwnership#isAllyOwned}）。作者 2026-09-27 把队友那一半补上——宠物会被顺手扫死
+     *       比误伤本人更难受，而马还可以停在战场边上替你占位；</li>
+     *   <li>**别人（非队友）的**宠物与坐骑：**照打**——与原版一致（原版打宠物从不看队伍）；</li>
+     *   <li>准星**正对**的**照打**（不管是自己的还是别人的）：走主目标路径。所以本方法**不得**用到
+     *       主目标判定上。</li>
      * </ul>
      * <p>
      * 为什么排除自己的宠物：原版横扫那行友军过滤是 {@code player.isAlliedTo(宠物)}，而 {@code Player}
@@ -517,12 +517,12 @@ public final class CwcCombat {
      * 原版的体感，宠物会被顺手扫死。故在自己的判定里补上这一侧。
      * <p>
      * 覆盖范围：{@code OwnableEntity} = {@code TamableAnimal}（狼/猫/鹦鹉等）+ {@code AbstractHorse}
-     * （马/驴/骡/羊驼/骆驼等）。**别人（含队友）的宠物都不在内**——与原版一致。
+     * （马/驴/骡/羊驼/骆驼等）。
      * <p>
-     * <b>两端同源</b>：主人这一题经 {@link CwcOwnership#ownerOf} 取，而不是直接 {@code own.getOwner()}——
-     * 马的 owner 原版只写在 NBT 里、**不同步到客户端**，客户端那侧恒为 null，直接问会认不出"这是我的马"，
-     * 表现为客户端 {@link #hasSweepTarget} 把它算成候选（指示器亮、服务端却不结算）。
-     * 服务端读原版字段、客户端读同步副本，详见 {@code CwcOwnership} 与 {@code CwcAttachments}。
+     * <b>两端同源</b>：主人与"主人的队伍"都经 {@link CwcOwnership} 取，而不是直接 {@code own.getOwner()}
+     * 或解析主人的玩家实体——那两样原版都没同步到客户端（马的 owner 只写在 NBT 里；谁都不送别人的队伍），
+     * 直接问会认不出"这是我（或我队友）的"，表现为客户端 {@link #hasSweepTarget} 把它算成候选
+     * （指示器亮、服务端却不结算）。详见 {@code CwcOwnership} 与 {@code CwcAttachments}。
      */
     /**
      * 队友能不能被本模组**准星正对**打中——**听队伍的 {@code friendlyFire}**（作者 2026-09-19 的需求）。
@@ -554,13 +554,10 @@ public final class CwcCombat {
     }
 
     private static boolean isSweepFriendly(Player player, Entity e) {
-        if (player.isAlliedTo(e)) return true;   // 队友：副目标**一律**不卷进来（友伤开着也一样）
-        if (!(e instanceof OwnableEntity own)) return false;
-        // 我的宠物 / 坐骑——经 CwcOwnership 取主人：马的 owner 原版不同步到客户端，
-        // 直接 own.getOwner() 在客户端恒为 null（见 CwcAttachments）
-        if (player.getUUID().equals(CwcOwnership.ownerOf(own))) return true;
-        // 队友的**坐骑**同样不卷进来（作者 2026-09-27 定）。队友的**宠物**照旧照打——与原版一致。
-        return own instanceof AbstractHorse horse && CwcOwnership.ownerTeamMatches(player, horse);
+        if (player.isAlliedTo(e)) return true;   // 队友本人：副目标**一律**不卷进来（友伤开着也一样）
+        // 我 / 我队友的宠物与坐骑——经 CwcOwnership 判（主人 UUID + 主人队伍，两端同源）。
+        // 不直接 getOwner()：马的 owner 原版不同步到客户端，那一步在客户端恒为 null（见 CwcAttachments）。
+        return CwcOwnership.isAllyOwned(player, e);
     }
 
     // ==================== 骑乘链保护 ====================
