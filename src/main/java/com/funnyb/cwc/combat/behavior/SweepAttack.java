@@ -51,7 +51,9 @@ public final class SweepAttack implements WeaponBehavior {
 
     @Override
     public boolean hasAnyTarget(Player player, ItemStack weapon, InteractionHand hand, Entity crosshairTarget) {
-        return CwcCombat.hasSweepTarget(player, weapon, hand, crosshairTarget);
+        // crosshairTarget 不用：准星正对的那个目标由 hasAnyAttackableTarget 的第 1 条统一判，
+        // 本方法只管"范围里有东西"（见 hasSweepTarget 的说明）
+        return CwcCombat.hasSweepTarget(player, weapon, hand);
     }
 
     @Override

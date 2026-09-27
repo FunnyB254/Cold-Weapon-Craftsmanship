@@ -127,16 +127,21 @@ public interface WeaponBehavior {
     }
 
     /**
-     * 准星处没有实体时，是否**还有别的**该让指示器点亮的目标。
+     * 准星处**没有**实体时，是否还有别的该让指示器点亮的目标。
      * <p>
-     * ⚠ <b>指示器在准星处有实体时会直接点亮，根本问不到本方法</b>（原版口径，见
-     * {@code CwcCombat#hasAnyAttackableTarget} 的说明）。所以本方法负责的只是"准星没指着东西"那一半：
-     * 默认 = 准星目标可命中（单体：不打准星就没有目标，于是恒为 false）；横扫覆盖成**范围扫描**
-     * （{@code hasSweepTarget}）——CWC 的横扫判定盒挂在玩家自己身上、空挥也结算，
-     * 站在怪堆里不看它们也该提示，这是本模组相对原版**多出来**的那一条提示。
+     * ⚠ 准星处有实体时由 {@code CwcCombat#hasAnyAttackableTarget} 的第 1 条单独判（"活着的活体"），
+     * 所以本方法负责的只是**"准星没指着东西"那一半**。默认 = **false**：单体武器不带准星就没有目标。
+     * <p>
+     * <b>2026-09-28 改</b>：默认实现原先返回 {@code CwcCombat.canHitTarget(player, crosshairTarget, …)}
+     * ——那等于把"准星有没有东西"又问了一遍，而且**问得比上游松**（上游只认活体，它连船 / 矿车 /
+     * 画框都放行），于是上游那条"只对活体亮"被整个架空、形同没改。作者要求"准星指着非活体不亮"
+     * 之后，这里改回本方法 javadoc 一直宣称的恒为 false。
+     * <p>
+     * 横扫覆盖成**范围扫描**（{@code CwcCombat.hasSweepTarget}）——CWC 的横扫判定盒挂在玩家自己
+     * 身上、空挥也结算，站在怪堆里不看它们也该提示，这是本模组相对原版**多出来**的那一条提示。
      */
     default boolean hasAnyTarget(Player player, ItemStack weapon, InteractionHand hand, Entity crosshairTarget) {
-        return CwcCombat.canHitTarget(player, crosshairTarget, weapon, hand);
+        return false;
     }
 
     /**

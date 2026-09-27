@@ -614,8 +614,12 @@ public final class CwcCombat {
      * <p>
      * 范围伤害**照样受向下链保护**（{@link #isRideChainDown}）：骑在船上时打不到自己这条船，
      * **下来才能打**（这一条与原版一致——原版的准星拾取同样拦着，见 `docs/bugs.md` BUG-031）。
+     * <p>
+     * <b>尸体不候选</b>（2026-09-28）：血量归零的活体打不出伤害（见 {@link #canHitTarget} 里同一条闸），
+     * 把它算进来只会让"站在尸体堆里"也亮。
      */
     private static boolean isSweepCandidate(Entity e) {
+        if (e instanceof LivingEntity living && living.isDeadOrDying()) return false;   // 尸体不候选
         return e instanceof LivingEntity || e instanceof Boat || e instanceof AbstractMinecart;
     }
 
@@ -804,6 +808,9 @@ public final class CwcCombat {
      */
     public static boolean canHitTarget(Player player, Entity target, ItemStack weapon, InteractionHand hand) {
         if (target == null || target == player || !target.isAttackable()) return false;
+        // 血量归零的活体：打不出伤害——原版 LivingEntity.hurt 的死活闸就是这一条，那里直接返回 false。
+        // 这里补上同一条，才配得上本方法"与攻击结算同规则"的说法（否则"选中了/亮着却打不到"）。
+        if (target instanceof LivingEntity living && living.isDeadOrDying()) return false;
         if (isRideChainDown(player, target)) return false;   // 骑乘链向下：准星对着也不算可命中
         WeaponBehavior attack = BehaviorResolver.behaviorFor(weapon, BehaviorField.ATTACK);
         return attack != null && attack.canHit(player, target, weapon, hand);
@@ -812,26 +819,21 @@ public final class CwcCombat {
     /**
      * 横扫是否存在**会挨打**的目标——客户端攻击指示器用（不要求准星对准）。
      * <p>
-     * 必须覆盖 {@link #applySweep} 的**两条**路，否则会出现"打得到却不亮"：
-     * <ol>
-     *   <li><b>准星正对的目标</b>——它走的是**主目标**那条路（{@link #canHitTarget}），
-     *       那一侧**不查** {@link #isSweepFriendly}：准星明确指着的东西就是玩家想打的东西，
-     *       包括自己的宠物（原版行为，见 {@link #isSweepFriendly} 的说明）。
-     *       早先这一条漏了，表现为"准星对着自己的狼，指示器不亮、但一刀下去照打"；</li>
-     *   <li><b>范围扫描</b>——{@link #applySweep} 副目标同规则：眼位 inflate(reach) 内的
-     *       {@link #isSweepCandidate 候选实体}（活体 / 船 / 矿车），双区域或准星射线命中 + 视线
-     *       + {@link #isSweepFriendly 非队友且不是自己的宠物}
-     *       + {@link #isRideChainDown 不在我向下的骑乘链上} + 可攻击。</li>
-     * </ol>
-     *
-     * @param crosshairTarget 准星命中的实体（客户端 {@code mc.hitResult}），没有则 null
+     * <b>只管范围扫描这一条路</b>——准星正对的那个目标由 {@link #hasAnyAttackableTarget} 的第 1 条
+     * 统一处理（"准星上是活着的活体"），这里**不再**重复判。
+     * <p>
+     * 原先这里另有一条"准星正对"的分支（{@code canHitTarget(crosshairTarget)}），它与上游那一条
+     * **问的是同一个问题、却更松**：上游只认活体，它连船 / 矿车 / 画框都放行，于是"准星指着非活体
+     * 也亮"这个口子是从它这儿漏出去的（2026-09-28 作者要求对齐原版后删掉）。删掉不丢东西：
+     * 它当年修的是"准星对着自己的狼、指示器不亮、但一刀下去照打"，而狼是活体，上游那一条照样点亮。
+     * <p>
+     * 范围扫描对齐 {@link #applySweep} 的副目标规则：眼位 inflate(reach) 内的
+     * {@link #isSweepCandidate 候选实体}（活体 / 船 / 矿车），双区域或准星射线命中 + 视线
+     * + {@link #isSweepFriendly 非队友且不是自己的宠物}
+     * + {@link #isRideChainDown 不在我向下的骑乘链上} + 可攻击。
      */
-    public static boolean hasSweepTarget(Player player, ItemStack weapon, InteractionHand hand,
-                                         Entity crosshairTarget) {
-        // ① 准星正对──主目标那条路（不查 isSweepFriendly，所以自己的宠物也算）
-        if (canHitTarget(player, crosshairTarget, weapon, hand)) return true;
-
-        // ② 范围扫描──副目标那条路
+    public static boolean hasSweepTarget(Player player, ItemStack weapon, InteractionHand hand) {
+        // 范围扫描──副目标那条路
         Level level = player.level();
         double reach = resolveReach(player, hand, weapon);
         Vec3 eye = player.getEyePosition();
@@ -853,17 +855,27 @@ public final class CwcCombat {
      * <p>
      * 分两层，**顺序就是口径**：
      * <ol>
-     *   <li><b>准星处是<u>活着的活体</u> → 亮</b>（作者 2026-09-27 定，2026-09-27 收紧到原版口径）。
-     *       原版攻击指示器（{@code Gui.java:461-477}）的四个条件里，与"目标"有关的就是
-     *       {@code instanceof LivingEntity} 与 {@code isAlive()} 这两条——**不复判** reach（拾取那一步
-     *       已按 reach 卡过）、**不看**友军、**不看**几何，能不能打到是结算的事。所以本模组也不再自己
-     *       发明精确预测：预测得越细，就越容易和服务端结算对不上（这个坑本模组踩过好几轮）。
+     *   <li><b>准星处是<u>活着的活体</u> → 亮</b>。原版攻击指示器（{@code Gui.java:461-477}）的四个条件里，
+     *       与"目标"有关的就是"是活体"与"活着"这两条——**不复判** reach（拾取那一步已按 reach 卡过）、
+     *       **不看**友军、**不看**几何，能不能打到是结算的事。所以本模组也不再自己发明精确预测：
+     *       预测得越细，就越容易和服务端结算对不上（这个坑本模组踩过好几轮）。
      *       <p>
-     *       原来这里写的是"有**任何** {@code Entity} 就亮"，与本方法自己的注释（"准星拾取到活体"）
-     *       都对不上，2026-09-27 按作者"和原版一致"的要求收紧。**代价**：准星指着船 / 矿车 / 画框 /
-     *       末影水晶这类**非活体**实体时不再亮——尽管本模组的攻击确实打得到船与矿车
-     *       （{@code canHitTarget} 只要求 {@code isAttackable()}）。这是"原版一致"与"打得到就亮"
-     *       两套口径的缝，作者选了前者。
+     *       这一条**两处收紧过，都不是原版字面**，差别要记着：
+     *       <ul>
+     *         <li>2026-09-27：从"有**任何** {@code Entity} 就亮"收成"必须是活体"——原先的代码与本方法
+     *             自己的注释（"准星拾取到活体"）都对不上；</li>
+     *         <li>2026-09-28：从 {@code isAlive()} 收成 {@code !isDeadOrDying()}（血量 &gt; 0）。
+     *             <b>原版那个 {@code isAlive()} 其实是"还没被移除"</b>，所以死亡动画那约 20 tick 里
+     *             尸体血量已归零、**原版照样亮**；作者要"尸体不亮"，故比原版**严这一档**，
+     *             而且这与本模组自己的攻击口径一致（原版 {@code LivingEntity.hurt} 对血量归零者
+     *             直接返回 false，也就是"亮着却打不到"）。</li>
+     *       </ul>
+     *       <p>
+     *       "非活体不亮"这一条**光靠本方法做不到**：判据的第 2 条当年会把准星目标再问一遍、
+     *       而且**问得更松**（连船 / 矿车 / 画框都放行），把这里整个架空。2026-09-28 那个更松的
+     *       重复判据已经删掉（见 {@link WeaponBehavior#hasAnyTarget} 与 {@link #hasSweepTarget}），
+     *       "准星指着船 / 矿车 / 画框 / 末影水晶不亮"现在才真正成立——**代价**是横扫确实打得到船与
+     *       矿车却不提示，这是"原版一致"与"打得到就亮"的缝，作者选了前者。
      *       <p>
      *       原版另外两个条件不在本方法：{@code 蓄力满}由绘制那一支判（{@code readiness >= 1.0}），
      *       {@code 攻速延迟 > 5} 是"这件物品"的条件、只对主手那条有意义
@@ -872,23 +884,27 @@ public final class CwcCombat {
      *       "准星处"**含向上骑乘链的补点**：骑在我头上的人不在 {@code mc.hitResult} 里（原版拾取按根载具
      *       过滤了整条骑乘链），但从玩家视角他就在准星上，出刀也确实打得到
      *       （见 {@link #pickUpperRideChain}）。早先这一条漏了，表现为"头上的人打得到、指示器却不亮"。</li>
-     *   <li>准星处没实体时，才问该物品 {@code attack} 字段胜出的行为
-     *       （{@link WeaponBehavior#hasAnyTarget}）——今天实际只剩**横扫的"范围里有东西"**那条
-     *       （{@link #hasSweepTarget}）：CWC 的横扫判定盒挂在玩家自己身上、空挥也结算，所以站在怪堆里
-     *       不看它们也该提示。</li>
+     *   <li>准星处没有实体时，才问该物品 {@code attack} 字段胜出的行为
+     *       （{@link WeaponBehavior#hasAnyTarget}）——默认恒为 false，今天实际只剩**横扫的"范围里有东西"**
+     *       那条（{@link #hasSweepTarget}）：CWC 的横扫判定盒挂在玩家自己身上、空挥也结算，所以站在
+     *       怪堆里不看它们也该提示。</li>
      * </ol>
      * <b>有意接受的"亮却打不到"</b>：准星指着**队友**且队伍关了友伤时会亮，但 {@link #canHarmAlly}
      * 仍会拒掉伤害。**原版正是如此**（原版不看队伍，由 {@code Player.hurt} 的 {@code canHarmPlayer} 拒），
      * 属于"回到原版口径"的一部分。
      * <p>
      * 第 2 条（横扫范围扫描）**比原版宽**：它把船 / 矿车也算候选（见 {@link #isSweepCandidate}），
-     * 所以横扫型武器站在船边时照样会亮——第 1 条收紧成活体之后，这一条的宽就只剩它自己了。
+     * 所以横扫型武器站在船边时照样会亮。这是**有意保留**的一条（横扫的范围伤害本来就作用于船与矿车），
+     * 与"准星指着它们不亮"不矛盾：那一条管的是**准星**，这一条管的是**范围**。
      *
      * @param crosshairTarget 客户端准星命中的实体（{@code mc.hitResult}），没有则 null
      */
     public static boolean hasAnyAttackableTarget(Player player, ItemStack weapon, InteractionHand hand, Entity crosshairTarget) {
         // ① 准星处是活着的活体 → 亮（含向上骑乘链的补点，见方法注释第 1 条）
-        if (crosshairTarget instanceof LivingEntity living && living.isAlive()) return true;
+        //    ⚠ 这里用 isDeadOrDying（血量 <= 0），**不是**原版字面的 isAlive()——原版那个是
+        //    "还没被移除"，死亡动画那 20 tick 里原版照样亮。作者 2026-09-28 要尸体不亮，
+        //    故比原版严这一档；顺带与本模组自己的攻击口径一致（LivingEntity.hurt 对血量归零者返回 false）。
+        if (crosshairTarget instanceof LivingEntity living && !living.isDeadOrDying()) return true;
         if (pickUpperRideChain(player, resolveReach(player, hand, weapon)) != null) return true;
 
         // ② 准星处没实体：交给行为（今天实际只剩横扫的范围扫描）
