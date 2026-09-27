@@ -1,14 +1,15 @@
 package com.funnyb.cwc.client.renderer;
 
 import com.funnyb.cwc.ColdWeaponCraftsmanship;
-import com.funnyb.cwc.client.renderer.hud.BehaviorHud;
-import com.funnyb.cwc.client.renderer.hud.BehaviorHudRegistry;
+import com.funnyb.cwc.client.renderer.hud.HudStyle;
+import com.funnyb.cwc.client.renderer.hud.HudStyleRegistry;
 import com.funnyb.cwc.combat.behavior.BehaviorField;
-import com.funnyb.cwc.combat.behavior.BehaviorRegistry;
 import com.funnyb.cwc.combat.behavior.BehaviorResolver;
+import com.funnyb.cwc.combat.behavior.WeaponBehavior;
 import com.funnyb.cwc.crafting.PartTypeDef;
 import com.funnyb.cwc.item.CwcWeapon;
 
+import net.minecraft.client.AttackIndicatorStatus;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.resources.ResourceLocation;
@@ -24,14 +25,15 @@ import net.neoforged.neoforge.client.event.RenderGuiLayerEvent;
 import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
 
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 
 /**
  * 准星层接管与 CWC 指示器的**分派**。
  * <p>
- * <b>本类只做三件事</b>：决定"要不要接管原版准星层"、画准星本体、把"哪只手 × 哪个字段"交给
- * {@code BehaviorHudRegistry} 里注册的 HUD。具体怎么画在各自的 {@link BehaviorHud} 里，
- * 几何在 {@link CrosshairBar} 里（唯一一份）。
+ * <b>本类只做三件事</b>：决定"要不要接管原版准星层"、画准星本体、把"哪只手 × 哪个字段"分派给
+ * **行为给的读数** + **数据选的样式**。读数见 {@code WeaponBehavior.hudReadout}，
+ * 画法在 {@link HudStyle}（几何唯一一份，在 {@link CrosshairBar} 里）。
  * <p>
  * <b>{@link #onCrosshairPre} 与 {@link #onCrosshairPost} 是一对互补物，必须同处一个类</b>：
  * Pre 在主手**是** CWC 武器时取消原版 crosshair 层（原版准星 + 攻击指示器）并自画；
@@ -39,8 +41,12 @@ import java.util.Set;
  * 副手指示器**画两次**（同一位置两次反色 = 看着不对）或**完全消失**。
  * <p>
  * <b>只画固定的两对（手 × 字段）</b>：主手的 {@code attack} 与副手的 {@code offHandUse}。
- * 副手的 {@code attack} 字段**故意不单独画**——它的结论已经并进出刀那条 HUD（"就绪 + 有目标 → 满格"），
- * 两条画在同一位置会反色两次、等于什么都没画。
+ * 每对的读数由**该字段胜出的行为**给（{@code WeaponBehavior.hudReadout}），画法由数据里那个
+ * {@code hud} id 选（{@link HudStyleRegistry}），**画在哪由手决定**（主手在准星下方、副手是它的镜像）
+ * ——所以两条可以共用同一个样式。
+ * <p>
+ * 副手的 {@code attack} 字段**故意不单独画**：它是"怎么打"，不是"哪个事件"。出刀那条的读数本来就
+ * 取那只手的 {@code attack} 几何（出刀按它打），两条画在同一位置会反色两次、等于什么都没画。
  * <p>
  * 本类**不读**任何跨 tick 状态（模式锁 / 主手武器身份 / 副手挂起旗子），只读 {@code mc.hitResult}、
  * {@code mc.options} 与 {@code CwcCombat} 的查询——它与 {@code CwcClientEvents} 的 tick 相位耦合为零。
@@ -106,24 +112,37 @@ public class CrosshairIndicators {
     }
 
     /**
-     * 画"这只手 × 这个字段"的 HUD——**分派点**：该字段胜出的声明里写着 hud id，注册表里找到实现就画。
+     * 画"这只手 × 这个字段"的 HUD——**分派点**：读数问这只手这个字段胜出的行为，画法用数据里那个
+     * {@code hud} id 选的样式。
      * <p>
-     * 三道闸：这只手被另一只手的武器占用（{@code disableOffHand}）→ 不画；该字段没有胜出的 HUD
-     * （没写 {@code hud}）→ 不画；hud id 没注册 → WARN 一次（见 {@link BehaviorHudRegistry} 的说明）。
+     * 四道闸：这只手被另一只手的武器占用（{@code disableOffHand}）→ 不画；原版攻击指示器设置不是
+     * CROSSHAIR → 不画（**只对主手那条**，见下）；该字段没有胜出声明 → 不画；行为说这只手不显示
+     * （读数为空）→ 不画。样式 id 没注册 → WARN 一次（见 {@link HudStyleRegistry} 的说明）。
+     * <p>
+     * <b>原版设置那道闸为什么在这儿、而不在样式里</b>：那条设置管的是**原版攻击指示器**，也就是主手那条
+     * ——副手那条一直不受它影响。放进样式会把副手那条一并挡掉，那是行为变化（样式层也不该知道原版设置）。
      */
     private static void renderHud(GuiGraphics gui, Player player, InteractionHand hand, BehaviorField field) {
         if (BehaviorResolver.otherHandBlocks(player, hand)) return;   // 双手武器占用另一只手的右键
+        if (hand == InteractionHand.MAIN_HAND
+                && Minecraft.getInstance().options.attackIndicator().get() != AttackIndicatorStatus.CROSSHAIR) {
+            return;   // 原版设置只管主手那条
+        }
         ItemStack stack = player.getItemInHand(hand);
         PartTypeDef.BehaviorDecl decl = BehaviorResolver.declFor(stack, field);
-        if (decl == null || decl.hud().isEmpty()) return;
-        String hudId = decl.hud().get();
-        BehaviorHud hud = BehaviorHudRegistry.get(hudId);
-        if (hud == null) {
-            warnUnknownHud(hudId);
+        if (decl == null || decl.hud().isEmpty()) return;   // 这个字段没声明样式 → 不画
+        String styleId = decl.hud().get();
+        HudStyle style = HudStyleRegistry.get(styleId);
+        if (style == null) {
+            warnUnknownStyle(styleId);
             return;
         }
-        hud.render(gui, new BehaviorHud.HudContext(field, player, hand, stack, decl,
-                BehaviorRegistry.get(decl.behavior()), crosshairTarget()));
+        WeaponBehavior behavior = BehaviorResolver.behaviorFor(stack, field);
+        if (behavior == null) return;                       // 正常不可能：行为 id 在加载期已校验
+        Optional<WeaponBehavior.HudReadout> readout = behavior.hudReadout(player, hand, stack, crosshairTarget());
+        if (readout.isEmpty()) return;                      // 行为说这只手不显示
+        WeaponBehavior.HudReadout numbers = readout.get();
+        style.render(gui, numbers.progress(), numbers.highlight(), hand == InteractionHand.OFF_HAND);
     }
 
     /** 准星命中的实体——判定"有没有可攻击目标"用（客户端侧取，通用包不能引用客户端类型） */
@@ -131,13 +150,13 @@ public class CrosshairIndicators {
         return Minecraft.getInstance().hitResult instanceof EntityHitResult ehr ? ehr.getEntity() : null;
     }
 
-    /** 已经 WARN 过的 hud id——HUD 注册在客户端、数据在服务端，加载期查不了，只能首次绘制时报一次，别刷屏 */
-    private static final Set<String> WARNED_HUDS = new HashSet<>();
+    /** 已经 WARN 过的样式 id——样式注册在客户端、数据在服务端，加载期查不了，只能首次绘制时报一次，别刷屏 */
+    private static final Set<String> WARNED_STYLES = new HashSet<>();
 
-    private static void warnUnknownHud(String hudId) {
-        if (WARNED_HUDS.add(hudId)) {
-            ColdWeaponCraftsmanship.LOGGER.warn("未知的 HUD id \"{}\"；已注册的有 {}",
-                    hudId, BehaviorHudRegistry.registeredIds());
+    private static void warnUnknownStyle(String styleId) {
+        if (WARNED_STYLES.add(styleId)) {
+            ColdWeaponCraftsmanship.LOGGER.warn("未知的 HUD 样式 id \"{}\"；已注册的有 {}",
+                    styleId, HudStyleRegistry.registeredIds());
         }
     }
 }

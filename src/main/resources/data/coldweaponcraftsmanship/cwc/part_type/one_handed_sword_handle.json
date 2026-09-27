@@ -3,7 +3,7 @@
   "layer": 1000,
   "attack": {
     "behavior": "cwc:strike_attack",
-    "hud": "cwc:attack_indicator"
+    "hud": "cwc:crosshair_bar"
   },
   "slots": [
     {

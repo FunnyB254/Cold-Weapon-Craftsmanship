@@ -15,7 +15,7 @@
   },
   "attack": {
     "behavior": "cwc:sweep_attack",
-    "hud": "cwc:attack_indicator"
+    "hud": "cwc:crosshair_bar"
   },
   "mainHandUse": {
     "behavior": "cwc:block_use"

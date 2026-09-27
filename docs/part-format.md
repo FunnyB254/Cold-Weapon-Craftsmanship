@@ -42,8 +42,8 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
   "layer": 900,
   "combat": { "reach": 0.0, "knockback": 0.0 },
   "mainHandUse": { "behavior": "cwc:block_use" },
-  "offHandUse":  { "behavior": "cwc:swing_use", "hud": "cwc:offhand_attack" },
-  "attack":      { "behavior": "cwc:sweep_attack", "hud": "cwc:attack_indicator" },
+  "offHandUse":  { "behavior": "cwc:swing_use", "hud": "cwc:crosshair_bar" },
+  "attack":      { "behavior": "cwc:sweep_attack", "hud": "cwc:crosshair_bar" },
   "disableOffHand": false,
   "slots": [
     {
@@ -76,8 +76,11 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 三个字段的取值都是同一个形状：**`behavior` 必填、`hud` 可省**。
 
 ```json
-"offHandUse": { "behavior": "cwc:swing_use", "hud": "cwc:offhand_attack" }
+"offHandUse": { "behavior": "cwc:swing_use", "hud": "cwc:crosshair_bar" }
 ```
+
+**两个键分工不同**（作者 2026-09-27 定）：`behavior` 决定**做什么**、并给出 HUD 的**读数**；
+`hud` 只决定**画成什么样**（一个样式），**不含来源**。
 
 - `behavior` 是**代码侧注册的行为 id**（`BehaviorRegistry`）。本模组内建：
 
@@ -93,12 +96,18 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
   都会让**那一条数据加载失败**并在日志里报错——不会静默失效。第三方模组可以注册自己的行为，
   见下方「扩展方式」。
 
-- `hud` 是**客户端画的 HUD**（`BehaviorHudRegistry`），可省 = 不画。内建两个：`cwc:attack_indicator`
-  （攻击指示器那条：未就绪画进度条、就绪且有目标画满格）、`cwc:offhand_attack`（副手出刀那条）。
-  `hud` 写错只在客户端首次绘制时 WARN 一次（数据在服务端加载、HUD 注册在客户端，加载期两边不一定都在场）。
+- `hud` 是**样式**（`HudStyleRegistry`，客户端解释），可省 = 不画。内建一个：`cwc:crosshair_bar`
+  ——原版攻击指示器那种准星条（未就绪画进度条、就绪且有目标画满格图标）。**两条指示器共用它**：
+  **画在哪由手决定**（主手那条在准星下方、副手那条是它的镜像），与样式无关。
+  `hud` 写错只在客户端首次绘制时 WARN 一次（数据在服务端加载、样式注册在客户端，加载期两边不一定都在场）
+  ——这是"样式 id 留在数据里"的已知代价。
 
-- **`behavior` 与 `hud` 是同一笔声明里的两半**：行为按优先级胜出，**HUD 就是胜出那笔自己写的那个**
-  （没写 = 不画）。**不从别的零件取**——否则 HUD 会配上一个它没预期的行为。想让两个行为共用一个 HUD，
+- **读数由行为给、画法由 `hud` 选**：显示什么（进度 + 高亮）由胜出的行为回答
+  （`WeaponBehavior#hudReadout`，默认实现就是两条指示器要的读法：主手读玩家攻速条、副手读它自己的
+  独立冷却，高亮 = 这只手能不能打到）。所以样式挂在哪个字段上都说得通，"挂错字段"不是语义错误。
+
+- **`behavior` 与 `hud` 是同一笔声明里的两个键**：行为按优先级胜出，**样式就是胜出那笔自己写的那个**
+  （没写 = 不画）。**不从别的零件取**——否则样式会配上一个它没预期的行为。想让两个行为共用一个样式，
   在各自的声明里写同一个 hud id 即可。
 
 **"哪一个声明生效"由装配树决定**（一个装配体是一层）：
@@ -129,8 +138,8 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 | 旧键 | 改成 |
 |---|---|
 | `"twoHanded": true` | `"mainHandUse": {"behavior":"cwc:block_use"}` + `"disableOffHand": true` |
-| `"offhandAttack": true` | `"offHandUse": {"behavior":"cwc:swing_use","hud":"cwc:offhand_attack"}` |
-| `"combat": {"style": "sweep"}` | `"attack": {"behavior":"cwc:sweep_attack","hud":"cwc:attack_indicator"}`（`normal`/`critical` 同理换成 `cwc:strike_attack` / `cwc:critical_attack`） |
+| `"offhandAttack": true` | `"offHandUse": {"behavior":"cwc:swing_use","hud":"cwc:crosshair_bar"}` |
+| `"combat": {"style": "sweep"}` | `"attack": {"behavior":"cwc:sweep_attack","hud":"cwc:crosshair_bar"}`（`normal`/`critical` 同理换成 `cwc:strike_attack` / `cwc:critical_attack`） |
 
 **`disableOffHand` 按层 OR 生效**（根 + 深度 1 的直接子件），子树内部声明的不外传。
 （旧 `twoHanded` 同时管"主手右键格挡"和"屏蔽副手"两件事，所以它拆成了上表那两笔。）
@@ -315,9 +324,11 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
    （模组构造器 / 模组总线事件里）用 `BehaviorRegistry.register(...)` 注册，然后让零件/类型的 JSON
    把 `behavior` 指向你的 id。`fields()` 声明它能挂在哪些字段上——挂错字段会让那条数据加载失败。
    需要跨 tick 记忆的动作（蓄力弓那类）返回一个 `BehaviorMachine`。
-6. **加自己的 HUD**：实现 `BehaviorHud`（客户端专用，可以自由用 `GuiGraphics`），在客户端初始化阶段
-   `BehaviorHudRegistry.register(...)`，让 JSON 的 `hud` 指向它。几何/翻转那类现成的画法在
+6. **加自己的 HUD 样式**：实现 `HudStyle`（客户端专用，可以自由用 `GuiGraphics`）——它的入参只有
+   **进度**与**高亮**两个数（读数由行为给，样式不自己去解析物品），在客户端初始化阶段
+   `HudStyleRegistry.register(...)`，让 JSON 的 `hud` 指向它。几何/翻转那类现成的画法在
    `CrosshairBar` 里，直接用，别重写。
+   要改的是"显示什么"而不是"画成什么样"时，覆盖行为的 `hudReadout`（通用侧），别动样式。
 7. **加自己的攻击方式**：`attack` 字段指向的行为覆盖 `strikeStyle` / `canHit` / `hasAnyTarget` / `strike`
    四个方法即可，具体零件（目标校验、伤害例程、范围几何、无敌帧豁免）从 `CwcCombat` 的公开入口取。
 

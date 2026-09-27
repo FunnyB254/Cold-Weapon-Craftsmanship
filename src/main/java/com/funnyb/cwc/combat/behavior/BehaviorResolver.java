@@ -29,10 +29,13 @@ import java.util.Optional;
  *       ——那会让结果取决于遍历顺序，而遍历顺序是实现的私事，数据包作者无从预期。</li>
  * </ol>
  *
- * <h2>HUD 跟着行为走</h2>
- * JSON 里 {@code {"behavior": …, "hud": …}} 那个对象是**一笔声明**：行为胜出时，HUD 就是它自己写的那个
- * （没写就没有）。**不从别的候选里取**——否则 HUD 会配上一个它没预期的行为。想让两个行为共用一个 HUD，
- * 在各自的声明里写同一个 hud id 即可（更直白）。
+ * <h2>HUD 样式跟着行为走</h2>
+ * JSON 里 {@code {"behavior": …, "hud": …}} 那个对象是**一笔声明**：行为胜出时，那个 {@code hud}
+ * （样式，只决定"画成什么样"）就是它自己写的那个，**没写就没有**。不从别的候选里取——否则样式会配上
+ * 一个它没预期的行为。想让两个行为共用一个样式，在各自的声明里写同一个 hud id 即可（更直白）。
+ * <p>
+ * 至于**显示什么**（进度 + 高亮），由胜出的行为自己回答（{@code WeaponBehavior.hudReadout}），
+ * 不经过本类。
  *
  * <h2>没有别名折算</h2>
  * 三个字段就是全部来源。早期那三个旧键（{@code twoHanded} / {@code offhandAttack} / {@code combat.style}）
@@ -200,12 +203,9 @@ public final class BehaviorResolver {
      * 摊成这个形状是为了让算法**不依赖物品栈与注册表**：离线检查器（{@code tmp/codeccheck}）直接造几层
      * 就能跑同一条代码路径。四条规则错起来全是静默的（表现为"某个行为不生效"），只靠游戏里试很难定位。
      *
-     * @param type                 本层的类型
-     * @param partId               本层来自哪个零件（诊断用）
-     * @param isRoot               是不是整件武器那一层（只有它吃旧字段别名）
-     * @param legacyOffhandAttack  旧的 {@code offhandAttack} 派生值（全树 OR）——仅根层有意义
-     * @param legacyStyle          旧的 {@code combat.style} 派生值（第一个 attack 型节点）——仅根层有意义
-     * @param children             直接子件，**下标必须大于本层**（DFS 前序保证，见 {@link #resolveLevels}）
+     * @param type     本层的类型
+     * @param partId   本层来自哪个零件（诊断用）
+     * @param children 直接子件，**下标必须大于本层**（DFS 前序保证，见 {@link #resolveLevels}）
      */
     record LevelSpec(PartTypeDef type, String partId, List<ChildSpec> children) {}
 
@@ -276,9 +276,10 @@ public final class BehaviorResolver {
             return new Pick(null, new Tie(best, List.copyOf(participants)));
         }
 
-        // HUD 跟着胜者走——它就是**这笔声明**里写的那个，没写就没有。
+        // HUD 样式跟着胜者走——它就是**这笔声明**里写的那个，没写就没有。
         // 不跨候选取：JSON 里那个对象是一笔声明，behavior 与 hud 一起被选中（作者 2026-09-26 定）。
-        // 想让两个行为共用一个 HUD，就在各自的声明里写同一个 hud id。
+        // 想让两个行为共用一个样式，就在各自的声明里写同一个 hud id（作者 2026-09-27 把两个样式 id
+        // 合成了一个：样式只管画法，读数由行为给，所以两条指示器本来就该共用）。
         return new Pick(new FieldResult(top.get(0).behavior(), top.get(0).hud(), best), null);
     }
 
@@ -330,7 +331,8 @@ public final class BehaviorResolver {
      * 某个字段在本层的胜出结果。
      *
      * @param behavior 行为 id（拿去 {@link BehaviorRegistry#get} 取实现）
-     * @param hud      HUD id——**胜出那笔声明里写的那个**；null = 这个字段不画东西
+     * @param hud      HUD **样式** id——**胜出那笔声明里写的那个**；null = 这个字段不画东西。
+     *                 样式只管画法，读数是行为给的（{@code WeaponBehavior.hudReadout}）
      * @param priority 胜出时用的优先级（诊断用）
      */
     public record FieldResult(String behavior, String hud, int priority) {}

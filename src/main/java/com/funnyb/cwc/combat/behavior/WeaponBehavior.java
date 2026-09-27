@@ -18,10 +18,11 @@ import java.util.Set;
 /**
  * 一个"行为"的实现——由装配树按字段与优先级选出（见 {@link BehaviorResolver}），注册在 {@link BehaviorRegistry}。
  * <p>
- * <b>只管事件，不管绘制。</b>HUD 是**另一笔独立的声明**（JSON 里同一个字段对象下的 {@code hud}），
- * 由客户端侧的 {@code BehaviorHudRegistry} 按 hud id 解释。所以本接口天然不引用任何客户端类型——
- * 它在通用侧，引用 {@code GuiGraphics} 会踩 RuntimeDistCleaner（本项目 {@code Layouts} 用 {@code Supplier}
- * 注入就是为躲这条）。
+ * <b>管事件，也管"这只手此刻该显示什么"，但不管绘制</b>（作者 2026-09-27 定）。
+ * 行为的 {@link #hudReadout} 给出**读数**（进度 + 高亮）——那是逻辑半自己的结论；
+ * **画成什么样**由数据里的 {@code hud} 键选一个客户端样式（{@code HudStyle}），
+ * **画在哪**由哪只手决定。所以本接口天然不引用任何客户端类型——它在通用侧，引用 {@code GuiGraphics}
+ * 会踩 RuntimeDistCleaner（本项目 {@code Layouts} 用 {@code Supplier} 注入就是为躲这条）。
  * <p>
  * 实现必须是**无状态单例**（随 id 注册一次，客户端与服务端共用一个实例）；需要跨 tick 记忆的动作请返回
  * {@link BehaviorMachine}。
@@ -144,6 +145,41 @@ public interface WeaponBehavior {
     default void strike(ServerPlayer player, InteractionHand hand, ItemStack weapon, int targetId) {
         CwcCombat.strikeSingle(player, hand, weapon, targetId);
     }
+
+    // —— HUD 读数：这只手这个字段"该显示成什么样" ——
+
+    /**
+     * 这只手的 HUD 读数——**进度**（0~1，未就绪到就绪）与**高亮**（此刻打不打得到）。
+     * <p>
+     * <b>为什么在行为上</b>：这两个数是这只手这个字段的**逻辑半自己的结论**。早先它们散在客户端 HUD 里，
+     * HUD 拿着物品栈回头调一遍 {@code CwcCombat} 重新解析才知道胜负——同一个问题算两遍，且"挂载字段"
+     * 与"判据字段"可以不一致（副手那条挂在 {@code offHandUse} 上却去问 {@code attack}）。
+     * 现在由行为自己回答：问的是谁，答的就是谁。
+     * <p>
+     * <b>样式是另一回事</b>：怎么画这两个数由数据里的 {@code hud} 键选（见 {@code HudStyle}），
+     * 所以本方法只给数、不给形。
+     * <p>
+     * <b>默认实现 = 主手攻击与副手出刀两条今天要的读法，所以内置行为一个都不用覆盖</b>：
+     * <ul>
+     *   <li>进度：主手读**玩家攻速条**，副手读**它自己的独立冷却**（两把刀各走各的冷却，这是刻意的）；</li>
+     *   <li>高亮：这只手能不能打到东西（与出手时同一套几何，见 {@link #hasAnyTarget}）。</li>
+     * </ul>
+     * <p>
+     * <b>返回 {@code empty} = 这只手这个字段不画。</b>保持型动作（格挡这类）没有"进度"可言，
+     * 将来要给它做提示时覆盖本方法；用 {@code Optional} 而不是"进度 0"是因为
+     * {@code HudReadout(0, false)} 会画出一条空进度条——那是"显示但还没就绪"，不是"不显示"。
+     */
+    default Optional<HudReadout> hudReadout(Player player, InteractionHand hand, ItemStack stack,
+                                            Entity crosshairTarget) {
+        float progress = hand == InteractionHand.MAIN_HAND
+                ? player.getAttackStrengthScale(0.0F)
+                : CwcCombat.offhandReadiness(player);
+        return Optional.of(new HudReadout(progress,
+                CwcCombat.hasAnyAttackableTarget(player, stack, hand, crosshairTarget)));
+    }
+
+    /** 一次 HUD 读数：进度 + 高亮。见 {@link #hudReadout} */
+    record HudReadout(float progress, boolean highlight) {}
 
     // —— 可选状态机 ——
 

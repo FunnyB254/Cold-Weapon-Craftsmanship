@@ -15,11 +15,11 @@
   },
   "attack": {
     "behavior": "cwc:strike_attack",
-    "hud": "cwc:attack_indicator"
+    "hud": "cwc:crosshair_bar"
   },
   "offHandUse": {
     "behavior": "cwc:swing_use",
-    "hud": "cwc:offhand_attack"
+    "hud": "cwc:crosshair_bar"
   },
   "slots": [
     {

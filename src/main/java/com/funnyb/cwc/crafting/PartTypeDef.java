@@ -86,7 +86,7 @@ public record PartTypeDef(Map<String, String> data, List<SlotDef> slots,
                     "改用 \"mainHandUse\": {\"behavior\": \"cwc:block_use\"} 加上 \"disableOffHand\": true",
                     (PartTypeDef def) -> Optional.empty()),
             rejected(Codec.BOOL, "offhandAttack",
-                    "改用 \"offHandUse\": {\"behavior\": \"cwc:swing_use\", \"hud\": \"cwc:offhand_attack\"}",
+                    "改用 \"offHandUse\": {\"behavior\": \"cwc:swing_use\", \"hud\": \"cwc:crosshair_bar\"}",
                     (PartTypeDef def) -> Optional.empty())
     ).apply(instance, (data, slots, position, layer, combat, offset,
                        mainHandUse, offHandUse, attack, disableOffHand,
@@ -112,20 +112,27 @@ public record PartTypeDef(Map<String, String> data, List<SlotDef> slots,
     }
 
     /**
-     * 一个字段的行为声明——JSON 里 {@code "mainHandUse": { "behavior": …, "hud": … }} 那个对象。
+     * 一个字段的声明——JSON 里 {@code "mainHandUse": { "behavior": …, "hud": … }} 那个对象。
      * <p>
-     * <b>{@code behavior} 与 {@code hud} 是一笔声明里的两半</b>（{@code hud} 可省 = 不画）：
-     * 行为按层内优先级与槽位 {@code priority} 胜出，**HUD 就是胜出那笔自己写的那个**——
-     * 不从别的候选里取（否则 HUD 会配上一个它没预期的行为）。想让两个行为共用一个 HUD，
-     * 在各自的声明里写同一个 hud id 即可。
+     * <b>{@code behavior} 与 {@code hud} 分工不同</b>（作者 2026-09-27 定）：
+     * <ul>
+     *   <li>{@code behavior}——**做什么**：按层内优先级与槽位 {@code priority} 胜出，
+     *       由它决定这个字段的行为，并由它给出 HUD 的**读数**（进度 + 高亮，
+     *       见 {@code WeaponBehavior.hudReadout}）；</li>
+     *   <li>{@code hud}——**画成什么样**（可省 = 不画）：只是给读数选一个客户端样式，
+     *       **不含来源**。所以同一个样式挂在哪个字段上都说得通，"挂错字段"不是语义错误。</li>
+     * </ul>
+     * 胜出那笔声明自己带的 {@code hud} 生效，**不从别的候选里取**——否则样式会配上一个它没预期的行为。
+     * 想让两个行为共用一个样式，在各自的声明里写同一个 hud id 即可（今天内置的只有
+     * {@code cwc:crosshair_bar} 一个，两条指示器都用它）。
      * <p>
      * <b>为什么 {@code hud} 不做"必填但可写 null"</b>：DFU 的 {@code JsonOps} 在条目层就把 {@code JsonNull}
      * 转成 Java null，标准 codec 区分不出"写了 null"与"没写这个键"；而注册表同步要过 NBT 一趟，
      * NBT 没有 null —— 那样服务端合法的数据到客户端会因为"缺键"解码失败。代价不值得。
      *
      * @param behavior 行为 id，必须在 {@link BehaviorRegistry} 注册过（未知 id 在**加载期**报错）
-     * @param hud      HUD id；{@code empty} = 这个行为不画东西。只由客户端解释，所以这里不校验注册
-     *                 （写错时客户端加载会 WARN）
+     * @param hud      HUD **样式** id；{@code empty} = 这个字段不画东西。只由客户端解释，所以这里不校验
+     *                 注册（写错时客户端首次绘制会 WARN）——这是"样式留在数据里"的已知代价
      */
     public record BehaviorDecl(String behavior, Optional<String> hud) {
 

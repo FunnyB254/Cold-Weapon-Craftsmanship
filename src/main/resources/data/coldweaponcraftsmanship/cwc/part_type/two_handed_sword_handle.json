@@ -4,7 +4,7 @@
   "disableOffHand": true,
   "attack": {
     "behavior": "cwc:strike_attack",
-    "hud": "cwc:attack_indicator"
+    "hud": "cwc:crosshair_bar"
   },
   "offset": {
     "x": -5,

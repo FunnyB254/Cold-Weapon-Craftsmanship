@@ -11,8 +11,8 @@ import net.minecraft.world.item.ItemStack;
  * <p>
  * <b>不要给"状态本来就归原版持有"的动作写机器。</b>典型反例是格挡：它的状态就是原版的
  * {@code isUsingItem()} 与使用时长，自己再记一个"正在格挡"的字段就是**复刻原版状态**，
- * 属于架构债（见 {@code docs/bugs.md} 的 ARCH-6）。这类动作的 {@link WeaponBehavior#occupies}
- * 应当**读原版**，而不是自己记。
+ * 属于架构债（见 {@code docs/bugs.md} 的 ARCH-6）。这类动作的 {@link #occupies} 应当**读原版**，
+ * 而不是自己记。
  * <p>
  * 现有两个行为（格挡、副手出刀）都不需要它，所以本接口目前**零实现**。
  */
