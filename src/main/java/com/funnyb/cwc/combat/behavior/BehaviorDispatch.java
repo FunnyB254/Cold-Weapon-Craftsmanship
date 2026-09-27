@@ -15,7 +15,7 @@ import net.minecraft.world.item.ItemStack;
  * 交给权威实现（见 {@code CwcNetwork}）。两边走同一段前置，所以不会出现"客户端认为是短刀、服务端
  * 认为是别的"这类不一致。
  * <p>
- * <b>这里只做输入层判断</b>（是不是本模组武器底座、这只手有没有被另一只手占用、这个字段有没有胜出行为），
+ * <b>这里只做输入层判断</b>（是不是本模组武器底座、这只手是不是被双手武器占用的副手、这个字段有没有胜出行为），
  * "冷却满没满""打谁"归行为自己。
  */
 public final class BehaviorDispatch {
@@ -25,13 +25,13 @@ public final class BehaviorDispatch {
     /**
      * 取出这只手右键的胜出行为。
      *
-     * @return null = **放行原版**：不是本模组武器底座 / 这一手没有声明行为 / 这只手被另一只手的武器屏蔽
+     * @return null = **放行原版**：不是本模组武器底座 / 这一手没有声明行为 / 副手被双手武器占用
      */
     public static Resolved resolve(Player player, InteractionHand hand) {
         ItemStack stack = player.getItemInHand(hand);
         if (!CwcWeapon.isWeaponBase(stack)) return null;
-        // 另一只手的武器声明了 disableOffHand（旧 twoHanded 折算）→ 这只手的右键归它
-        if (BehaviorResolver.otherHandBlocks(player, hand)) return null;
+        // 双手武器占用副手（旧 twoHanded 折算）→ 副手的右键归它；主手永远不受影响
+        if (BehaviorResolver.handBlocked(player, hand)) return null;
 
         BehaviorField field = BehaviorField.useField(hand);
         PartTypeDef.BehaviorDecl decl = BehaviorResolver.declFor(stack, field);

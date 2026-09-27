@@ -15,11 +15,14 @@ import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RenderHandEvent;
 
 /**
- * 副手被另一只手的武器占用时（{@code disableOffHand}）的**视觉反馈：副手沉下去一半**。
+ * 副手被双手武器占用时（{@code disableOffHand}）的**视觉反馈：副手沉下去一半**。
  * <p>
- * 起因：上一轮把 {@code disableOffHand} 补成"真的占用另一只手"之后，副手什么都不做却**没有任何反馈**——
+ * 起因：上一轮把 {@code disableOffHand} 补成"真的占用副手"之后，副手什么都不做却**没有任何反馈**——
  * 手上的方块照原位举着，只有"按了没反应"。这里给它一个看得见的状态：被占用时下沉、解除时升回，
  * 两个方向都带过渡（作者 2026-09-27 定）。
+ * <p>
+ * <b>下沉量是个布尔驱动的量，不会叠加</b>：判据 {@code BehaviorResolver.handBlocked(player, OFF_HAND)}
+ * 只看"有没有"（两只手都拿双手武器也只算一次），所以永远是 0 或 {@code 0.5} 两个目标值之一。
  *
  * <h2>数字全部照抄原版的装备动画（{@code ItemInHandRenderer}）</h2>
  * <ul>
@@ -88,8 +91,9 @@ public final class OffhandSink {
             sink = 0.0F;
             return;
         }
-        // 判据复用现成的那一个（与副手指示器同源，见 CrosshairIndicators#renderHud），不新增规则
-        float target = BehaviorResolver.otherHandBlocks(player, InteractionHand.OFF_HAND) ? SINK : 0.0F;
+        // 判据复用现成的那一个（与副手指示器同源，见 CrosshairIndicators#renderHud），不新增规则。
+        // 它是**布尔**：两手都拿双手武器也只沉一次，不会叠成两倍（作者 2026-09-27 明确要求）。
+        float target = BehaviorResolver.handBlocked(player, InteractionHand.OFF_HAND) ? SINK : 0.0F;
         sink += Mth.clamp(target - sink, -EQUIP_STEP, EQUIP_STEP);
     }
 

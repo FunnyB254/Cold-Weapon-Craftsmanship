@@ -387,8 +387,8 @@ public class CwcClientEvents {
      * 服务端仅进冷却 + 广播挥动。
      * <p>
      * 未接管（不是本模组武器 / 这一手没声明行为 / 冷却中）时放行原版流程——原版 useItem 也会因
-     * isOnCooldown 直接 pass。**例外是"另一只手占用右键"**：那不是"放行原版"而是**整轮作废**
-     * （原版也不执行），见下面 {@code otherHandBlocks} 那一段。
+     * isOnCooldown 直接 pass。**例外是"副手被双手武器占用"**：那不是"放行原版"而是**整轮作废**
+     * （原版也不执行），见下面 {@code handBlocked} 那一段。
      * <p>
      * 原版按住右键时本事件**每 ~5 tick 就会再来一次**：{@code handleKeybinds} 里
      * {@code keyUse.isDown() && rightClickDelay == 0 && !isUsingItem()} 会每 tick 调 {@code startUseItem}，
@@ -408,12 +408,12 @@ public class CwcClientEvents {
         sawOffhandUse = true;
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
-        // 另一只手声明了 disableOffHand（双手武器占用双手）→ 这一轮**整轮作废，原版也一并挡掉**。
+        // 双手武器占用副手 → 这一轮**整轮作废，原版也一并挡掉**（不论那把双手武器在主手还是副手上）。
         // 装配后的双手武器是靠"主手消费 → 原版 startUseItem 的 for 循环直接 return，副手那一轮根本
         // 够不到"顺带挡住的；空手柄没有可消费的主手动作（mainHandUse 由**刃**声明、手柄的刀身槽放行，
         // 空手柄这一字段没有胜者），原版循环会真的走到这一轮，于是"拿着空的双双手柄仍能用副手放方块"。
         // 补上这一句，两者的表现才一致（2026-09-27 作者定）。
-        if (BehaviorResolver.otherHandBlocks(mc.player, InteractionHand.OFF_HAND)) {
+        if (BehaviorResolver.handBlocked(mc.player, InteractionHand.OFF_HAND)) {
             event.setCanceled(true);
             event.setSwingHand(false);   // 什么都没发生，不要挥动
             return;

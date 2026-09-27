@@ -67,7 +67,7 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 | `mainHandUse` | 否 | **这件物品在主手时**右键做什么，见「行为与 HUD」 |
 | `offHandUse` | 否 | **这件物品在副手时**右键做什么 |
 | `attack` | 否 | **这件物品的攻击方式**（普攻风格与几何）。在哪只手都读同一份 |
-| `disableOffHand` | 否 | 是否屏蔽**另一只手**的动作（双手武器占用双手那条规则）。**含原版动作**：副手放方块 / 用桶 / 喂食一并挡掉，不只是本模组的副手出刀。默认 false |
+| `disableOffHand` | 否 | 是不是**双手武器**（"需要两只手"那条规则）。**只吃副手，主手永远不受影响**：这把武器无论拿在哪只手上，被禁用的都是副手。**含原版动作**：副手放方块 / 用桶 / 喂食一并挡掉，不只是本模组的副手出刀，副手还会因此**沉下去一半**（与原版物品切换同速的过渡）。默认 false |
 
 **类型只有一种数据形状**，所以没有 `parser` 分派：`data` 是自由键值对，加语义键直接加即可，不需要新 codec。
 
@@ -142,8 +142,12 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 | `"offhandAttack": true` | `"offHandUse": {"behavior":"cwc:swing_use","hud":"cwc:crosshair_bar"}` |
 | `"combat": {"style": "sweep"}` | `"attack": {"behavior":"cwc:sweep_attack","hud":"cwc:crosshair_bar"}`（`normal`/`critical` 同理换成 `cwc:strike_attack` / `cwc:critical_attack`） |
 
-**`disableOffHand` 按层 OR 生效**（根 + 深度 1 的直接子件），子树内部声明的不外传。
+**`disableOffHand` 按层 OR 生效**（根 + 深度 1 的直接子件），子树内部声明的不外传；
+且**只在"有没有"这个意义上生效**——两只手都拿着双手武器，副手也只被占用一次（下沉一次，不会叠）。
 （旧 `twoHanded` 同时管"主手右键格挡"和"屏蔽副手"两件事，所以它拆成了上表那两笔。）
+
+**"只吃副手"是单向的**（2026-09-27 定，与更早那版相反）：双手武器**不论拿在哪只手上**，被禁用的都是
+**副手**，主手永远不受影响。所以"副手攥着一把双手柄把主手废掉、且看不出原因"那种情形不存在了。
 
 ### `data` 与角色
 

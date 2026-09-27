@@ -115,7 +115,7 @@ public class CrosshairIndicators {
      * 画"这只手 × 这个字段"的 HUD——**分派点**：读数问这只手这个字段胜出的行为，画法用数据里那个
      * {@code hud} id 选的样式。
      * <p>
-     * 四道闸：这只手被另一只手的武器占用（{@code disableOffHand}）→ 不画；原版攻击指示器设置不是
+     * 四道闸：这只手被双手武器占用（{@code disableOffHand}，**只有副手会中**）→ 不画；原版攻击指示器设置不是
      * CROSSHAIR → 不画（**只对主手那条**，见下）；该字段没有胜出声明 → 不画；行为说这只手不显示
      * （读数为空）→ 不画。样式 id 没注册 → WARN 一次（见 {@link HudStyleRegistry} 的说明）。
      * <p>
@@ -123,7 +123,7 @@ public class CrosshairIndicators {
      * ——副手那条一直不受它影响。放进样式会把副手那条一并挡掉，那是行为变化（样式层也不该知道原版设置）。
      */
     private static void renderHud(GuiGraphics gui, Player player, InteractionHand hand, BehaviorField field) {
-        if (BehaviorResolver.otherHandBlocks(player, hand)) return;   // 双手武器占用另一只手的右键
+        if (BehaviorResolver.handBlocked(player, hand)) return;   // 双手武器占用副手（主手永远不中）
         if (hand == InteractionHand.MAIN_HAND
                 && Minecraft.getInstance().options.attackIndicator().get() != AttackIndicatorStatus.CROSSHAIR) {
             return;   // 原版设置只管主手那条

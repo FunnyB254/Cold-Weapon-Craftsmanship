@@ -167,30 +167,38 @@ public final class BehaviorResolver {
     }
 
     /**
-     * 这只手是否被**另一只手**的武器屏蔽（{@code disableOffHand}）。
+     * 这只手是否**被双手武器占用**（{@code disableOffHand}）。
      * <p>
-     * 判定"另一只手上的那把武器"，与旧代码里的 {@code isTwoHandedStack(player.getMainHandItem())}
-     * 同向：手上拿着双手武器时，副手出刀被挡。反向也成立（副手握着声明了 disableOffHand 的武器时，
-     * 主手右键归它）——目前没有数据这么用，但规则是对称的。
+     * <b>只有副手会被占用，主手永远不会</b>（作者 2026-09-27 定）：双手武器**不论拿在哪只手上**，
+     * 被吃掉的都是副手——在主手是"腾不出副手"（两只手都在它身上），在副手是"它自己就需要两只手，
+     * 于是副手是废的、而主手照常"。
      * <p>
-     * <b>两个消费者，别只想到一个</b>（2026-09-27 补齐第二个）：
+     * 这与更早那版**相反**（那时是"谁拿双手武器就禁**另一只**手"，于是"副手攥着一把双手柄把主手废掉"，
+     * 而且主手还看不出为什么）。现在统一成单向。
+     * <p>
+     * 判据是**任一只手**的武器声明了它（各自装配树按层 OR，见 {@link #disableOffHand}），与"拿武器的是谁"
+     * 无关。所以它天然是个**布尔**——两只手都拿双手武器也不会叠加，用它的地方一律照此办理
+     * （例如 {@code OffhandSink} 的下沉量：只沉一次，不会沉两倍）。
+     * <p>
+     * <b>四个消费者，别只想到一个</b>（第三个、第四个是 2026-09-27 补的）：
      * <ul>
-     *   <li>{@link BehaviorDispatch#resolve}——本模组**不接管**这只手的右键。注意这一半是"放行原版"
+     *   <li>{@link BehaviorDispatch#resolve}——本模组**不接管**副手的右键。注意这一半是"放行原版"
      *       （不接管 = 原版照旧），单靠它挡不住原版动作；</li>
      *   <li>{@code CwcClientEvents.onUseKey} 的副手轮——**整轮作废，原版也挡**。装配后的双手武器靠
      *       "主手消费 → 原版 {@code startUseItem} 的 for 循环不进副手那一轮"顺带达到同一效果；
-     *       空手柄没有可消费的主手动作，必须靠这一句，否则"拿着空的双双手柄仍能用副手放方块"。</li>
+     *       空手柄没有可消费的主手动作，必须靠这一句，否则"拿着空的双双手柄仍能用副手放方块"；</li>
+     *   <li>{@code CrosshairIndicators}——副手那条指示器不画；</li>
+     *   <li>{@code OffhandSink}——副手沉下去一半。</li>
      * </ul>
      */
-    public static boolean otherHandBlocks(Player player, InteractionHand hand) {
-        InteractionHand other = hand == InteractionHand.MAIN_HAND
-                ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND;
-        ItemStack stack = player.getItemInHand(other);
-        return !stack.isEmpty() && disableOffHand(AssemblyTree.of(stack));
+    public static boolean handBlocked(Player player, InteractionHand hand) {
+        if (hand != InteractionHand.OFF_HAND) return false;   // 主手永远不被占用
+        return disableOffHand(AssemblyTree.of(player.getMainHandItem()))
+                || disableOffHand(AssemblyTree.of(player.getOffhandItem()));
     }
 
     /**
-     * "屏蔽另一只手"——**本层按 OR 生效：根 + 深度 1 的直接子件**。
+     * 这把武器是不是**双手武器**（{@code disableOffHand}）——**本层按 OR 生效：根 + 深度 1 的直接子件**。
      * <p>
      * 子树内部声明的不外传（与"优先级不外传"同一条精神，否则深层零件能从另一个门夺权）。
      */
