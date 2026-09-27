@@ -15,17 +15,23 @@ import net.minecraft.world.item.ItemStack;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent;
 import net.neoforged.neoforge.event.entity.player.AttackEntityEvent;
+import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 
 /**
- * 战斗事件处理——强制攻击冷却（服务器兜底）与**受击转发**。
+ * 战斗事件处理——强制攻击冷却（服务器兜底）、**受击转发**与**换手计费的服务端观察点**。
  * <p>
  * 主拦截在客户端输入层（见 {@link com.funnyb.cwc.client.CwcClientEvents#onAttackKey}）：
  * 冷却未满时取消攻击键，根本不发攻击包。此处 AttackEntityEvent 作为服务器兜底防御——
  * 若客户端拦截未生效（第三方客户端/其他攻击入口），在伤害层面阻止冷却未满的攻击。
  * <p>
- * 两个事件的处理器**都不自己实现动作**：攻击转发给攻击管线（{@link CwcCombat#performMainHandAttack}），
- * 减伤转发给正在使用的那件物品所属的行为（{@link WeaponBehavior#modifyIncomingDamage}）。
- * 行为类不能自己注册事件（事件只注册一次），这里是唯一的转发点。
+ * 事件处理器**都不自己实现动作**：攻击转发给攻击管线（{@link CwcCombat#performMainHandAttack}），
+ * 减伤转发给正在使用的那件物品所属的行为（{@link WeaponBehavior#modifyIncomingDamage}），
+ * 换手计费转发给 {@link WeaponSwapCooldown}。行为类不能自己注册事件（事件只注册一次），
+ * 这里是唯一的转发点。
+ * <p>
+ * {@link #onPlayerTick} 是本类唯一的**每 tick 巡检**型处理器，也是这三个里唯一不在"伤害管线"上的
+ * ——它只观察手上的物品，不参与任何一次结算。为什么服务端必须自己看、为什么客户端反倒不能挂，
+ * 见该方法的注释。
  * <p>
  * 由 {@link com.funnyb.cwc.ColdWeaponCraftsmanship} 构造器注册到 NeoForge.EVENT_BUS（game bus）。
  */
@@ -71,5 +77,25 @@ public class CwcCombatEvents {
 
         event.setAmount(behavior.modifyIncomingDamage(new WeaponBehavior.UseContext(
                 field, player.level(), player, hand, stack, decl), event.getAmount()));
+    }
+
+    /**
+     * 换手计费——服务端这一侧的"这两只手现在拿的是什么"观察点（见 {@link WeaponSwapCooldown}：
+     * 换上武器要付一次冷却）。
+     * <p>
+     * <b>客户端一侧没有对应的处理器，是刻意的</b>：{@code PlayerTickEvent.Post} 在 {@code Player.tick()}
+     * 末尾触发，而客户端的点击路径跑在之后的 {@code handleKeybinds} 里，挂上去会把"刚换了武器"
+     * 这个事实提前消费掉，让 {@code mainHandSettled} 的属性追平门槛失效（BUG-007 回归）。
+     * 客户端的观察点是 {@code CwcClientEvents.mainHandSettled}，它自己会在点击路径上先刷新一次。
+     * <p>
+     * 服务端为什么必须自己观察、而不是等客户端告诉它：{@code isServerCooldownReady} 在没有记录时
+     * **直接放行**，且它的时钟是自持的（不读原版攻速条）——客户端换武器时归零的那根条，
+     * 服务端根本看不见。
+     */
+    @SubscribeEvent
+    public void onPlayerTick(PlayerTickEvent.Post event) {
+        Player player = event.getEntity();
+        if (player.level().isClientSide) return;              // 客户端走 CwcClientEvents（见上）
+        WeaponSwapCooldown.observe(player);
     }
 }

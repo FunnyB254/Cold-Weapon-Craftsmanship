@@ -1,7 +1,6 @@
 package com.funnyb.cwc.combat.behavior;
 
 import com.funnyb.cwc.combat.CwcCombat;
-import com.funnyb.cwc.registry.CwcItems;
 
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
@@ -46,8 +45,9 @@ public final class SwingBehavior implements WeaponBehavior {
         int targetId = CwcCombat.pickAttackTargetId(player, ctx.stack(), ctx.hand(), ctx.crosshairTarget());
 
         // 本地先记一次冷却：服务端的冷却要一个往返才同步回来，不补的话按住右键会在空窗期每 tick 重发包，
-        // 准星指示器也会滞后一 tick。数值与服务端那份同源（CwcCombat.offhandCooldownTicks）。
-        player.getCooldowns().addCooldown(CwcItems.OFFHAND_COOLDOWN.get(), CwcCombat.offhandCooldownTicks(ctx.stack()));
+        // 准星指示器也会滞后一 tick。**这一动作只有一份实现**（CwcCombat.applyOffhandCooldown）——
+        // 数值与服务端那份同源，换武器重新计时也走它。
+        CwcCombat.applyOffhandCooldown(player, ctx.stack());
 
         return Optional.of(new UseIntent(ctx.hand(), Button.USE, targetId));
     }

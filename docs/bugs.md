@@ -964,6 +964,59 @@ float f4 = this.getKnockback(target, damagesource) + (flag ? 1.0F : 0.0F);
 
 ---
 
+## BUG-035 — 换 CWC 武器白赚一次满蓄力 → 换手要付一次冷却（作者 2026-09-27 定）
+
+**状态：** 已实现（**游戏内待验**）
+
+**位置：** 新增 `combat/WeaponSwapCooldown`（身份 + 两条规则）；`combat/CwcCombatEvents.onPlayerTick`
+（服务端观察点）；`client/CwcClientEvents.mainHandSettled`（客户端观察点）；
+`combat/CwcCombat.chargeMainHandCooldown` / `applyOffhandCooldown`
+
+**现象（改动前）：** 快捷栏里两把 CWC 武器互切 → 主手那条冷却条**一直是满的**，换过来就能立刻出刀；
+而从普通物品（剑/镐/空手）换过来反倒要等。同一件事两种手感。
+
+**根因：** 原版只在 `!ItemStack.matches(lastItemInMainHand, stack)` **且** `!isSameItem(...)` 时才归零
+攻速条（`Player.java:319-327`），也就是"**物品 id 变了**才算换"。而本模组的裸手柄与装配好的武器
+**是同一个物品**（`CwcItems.HANDLE_PART`），于是"换一把 CWC 武器"在原版眼里是"同一件物品"。
+副手那半是另一回事：副手冷却挂在一个**共享的**物品冷却键上，且全仓没有任何"副手换了东西"的检测。
+
+**修复（两条规则）：**
+
+1. **主手身份变化 → 付一次完整冷却。** 身份 = `PART_IDENTITY` + `ASSEMBLED_SLOTS`（**刻意不含耐久**，
+   沿用 `mainHandSettled` 原有的口径与它记录的 BUG-010 那个坑），并**先过一道**
+   `CwcWeapon.isWeaponBase`——单个零件（刃/镡）也带 `PART_IDENTITY`，不认物品本身会把"副手塞了一块刃"
+   当成换上武器。动作 = 归零攻速条（两侧）+ 服务端把自持时钟拨到此刻（`chargeMainHandCooldown`，
+   与出手计费是同一个动作）。计费口径不另立：客户端仍 0.9、服务端仍 `ceil(0.9D) − 3`。
+2. **副手换上武器 → 冷却重新计时**（"重置"= 拨回满，与第 1 条同向），用现成的 `offhandCooldownTicks`。
+
+**两把零件完全相同的武器互切不收冷却**（身份相等，与原版"同物品同组件不算换"一致）；
+**首次观察不收冷却**（上线 / 重生 / 换维度手里已经拿着武器，不该凭空被罚）。
+
+**为什么服务端必须自己观察：** `isServerCooldownReady` 在没有记录时**直接放行**，且它是自持时钟、
+不读原版攻速条——客户端换武器时归零的那根条，服务端根本看不见。故服务端挂 `PlayerTickEvent.Post`。
+
+**⚠ 客户端反而不能挂这个事件：** 它在 `Player.tick()` **末尾**触发（`Player.java:335`），而客户端的
+点击路径跑在之后的 `handleKeybinds` 里。挂上去会把"刚换了武器"这个事实提前消费掉，
+`mainHandSettled` 随后看到"没变化"而放行——**BUG-007 那两 tick 的属性追平门槛当场失效**。
+客户端因此只保留原有的两个调用点（`tryMainHandAttack` 与 `onClientTick`），一个事件都不加。
+
+**预期内的副作用：** `CwcClientEvents` 少三个静态可变字段（身份搬进 `WeaponSwapCooldown` 的
+`WeakHashMap<Player,…>`），`resetTransientState` 相应少三行——"新加字段忘了加进 reset"这一类坑
+在这三个字段上消失。另外 `mainHandSettled` **首次观察不再触发**那两 tick 门槛（原先会），
+因为上线不是"换武器"。
+
+**已知取舍：** 服务端一个 tick 内**先处理包、后跑 `Player.tick()`**（`ServerGamePacketListenerImpl.tick():266`
+→ `ServerPlayer.doTick()` → `super.tick()`），所以"换武器"与"攻击"两个包落在同一 tick 时，那次攻击按
+**换之前**的时钟判。正常客户端够不到（它换武器那一刻就把自己的条归零了，根本不发包），按 BUG-012 的
+立场不为此收紧。
+
+**验证（待做）：** 两把 CWC 武器互切 → 冷却条清空重走、其间点左键不出刀；**零件完全相同**的两把互切 →
+不收冷却；副手换上武器 → 副手指示器空掉重走、其间右键不出刀；上线/重生不凭空吃冷却。
+`tmp/TEST-CHECKLIST.md` 的 B-0 与 E 节那两条"换武器 → 第一下就有伤害"**措辞已同步改**
+（断言本身没变：不许静默吞掉那一下；但换到手之后要先等冷却走满才轮到它）。
+
+---
+
 ## 数据设计缺口（**不是死数据**，勿删）
 
 `Parts/cwc/**` 里的 `hardnessMultiplier` / `toughnessMultiplier` **当前完全不参与计算**：

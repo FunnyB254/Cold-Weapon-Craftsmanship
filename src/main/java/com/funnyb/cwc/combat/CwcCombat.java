@@ -93,14 +93,14 @@ public final class CwcCombat {
         ItemStack weapon = player.getMainHandItem();
         if (weapon.getItem() != CwcItems.HANDLE_PART.get()) return;            // 只认主手 CWC 武器
         if (!isServerCooldownReady(player, InteractionHand.MAIN_HAND, weapon)) return; // 服务端权威冷却（自持时钟）
-        markMainHandAttack(player);   // 出手即计费——空挥同样进冷却，与原版一致
+        chargeMainHandCooldown(player);   // 出手即计费——空挥同样进冷却，与原版一致
 
         WeaponBehavior attack = BehaviorResolver.behaviorFor(weapon, BehaviorField.ATTACK);
         if (attack != null) attack.strike(player, InteractionHand.MAIN_HAND, weapon, targetId);
         // attack 字段并列成冲突时没有任何方式胜出 → 按空挥处理（不进伤害、不报错），
         // 但照旧计费与挥动——对玩家而言与"打空了"是同一件事。
 
-        // 攻速条仍归零，但**本模组的冷却已不读它**——冷却由 markMainHandAttack 记下的时钟推进
+        // 攻速条仍归零，但**本模组的冷却已不读它**——冷却由 chargeMainHandCooldown 记下的时钟推进
         // （见 isServerCooldownReady）。保留这一句只是让服务端那根条对原版自己的路径仍然可信。
         player.resetAttackStrengthTicker();
         // 反馈：广播挥动给其他玩家。双参 swing(hand,false) 不会隐式重置攻速条
@@ -283,17 +283,38 @@ public final class CwcCombat {
                 - SERVER_COOLDOWN_SLACK_TICKS);
     }
 
-    /** 记下一次主手出手——由 {@link #performMainHandAttack} 通过冷却校验后调用（空挥同样计费） */
-    private static void markMainHandAttack(Player player) {
+    /**
+     * 把主手冷却拨到此刻——"从这一刻起要等一个冷却"。两个调用方：
+     * {@link #performMainHandAttack} 通过冷却校验后（出手即计费，空挥同样计费），以及
+     * {@link WeaponSwapCooldown 换到武器时}（换手要付一次冷却）。
+     * <p>
+     * 名字不叫"记一次出手"是因为换武器并不是一次出手——但这个动作和出手是完全同一件事：
+     * 把 {@link #LAST_MAIN_ATTACK_TICK} 这个自持时钟拨到 {@code tickCount}。
+     */
+    public static void chargeMainHandCooldown(Player player) {
         LAST_MAIN_ATTACK_TICK.put(player, player.tickCount);
     }
 
-    /** 冷却施加——按手：主手由 {@link #markMainHandAttack} 记时钟；副手施加独立物品冷却 */
+    /** 冷却施加——按手：主手由 {@link #chargeMainHandCooldown} 记时钟；副手施加独立物品冷却 */
     public static void applyCooldown(ServerPlayer player, InteractionHand hand, ItemStack weapon) {
         if (hand != InteractionHand.OFF_HAND) {
             return;  // 主手冷却在 performMainHandAttack 里记时钟，不在此处理
         }
-        player.getCooldowns().addCooldown(CwcItems.OFFHAND_COOLDOWN.get(), offhandCooldownTicks(weapon));
+        applyOffhandCooldown(player, weapon);
+    }
+
+    /**
+     * 副手冷却施加——**客户端预测与服务端权威共用这一份实现**。
+     * <p>
+     * 两处调用各有各的理由，但数值与键必须是同一个：客户端在 {@code SwingBehavior.onClientUse} 里先记一次
+     * （服务端那份要一个往返才同步回来，不补的话按住右键会在空窗期每 tick 重发包、指示器也滞后一 tick），
+     * 服务端在 {@code SwingBehavior.onServerUse} 里作为权威。{@link WeaponSwapCooldown 换武器重新计时}
+     * 也走它——那条规则要的是同一个"副手冷却拨回满"。
+     * <p>
+     * 参数取 {@link Player} 而不是 {@code ServerPlayer}：客户端那次预测用的就是本地玩家。
+     */
+    public static void applyOffhandCooldown(Player player, ItemStack knife) {
+        player.getCooldowns().addCooldown(CwcItems.OFFHAND_COOLDOWN.get(), offhandCooldownTicks(knife));
     }
 
     // ==================== 副手就绪辅助（客户端指示器/拦截也用） ====================

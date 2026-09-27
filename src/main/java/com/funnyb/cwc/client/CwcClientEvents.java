@@ -3,15 +3,14 @@ package com.funnyb.cwc.client;
 import com.funnyb.cwc.ColdWeaponCraftsmanship;
 import com.funnyb.cwc.client.renderer.AssembledWeaponRenderer;
 import com.funnyb.cwc.combat.CwcCombat;
+import com.funnyb.cwc.combat.WeaponSwapCooldown;
 import com.funnyb.cwc.combat.behavior.BehaviorDispatch;
 import com.funnyb.cwc.combat.behavior.BehaviorResolver;
 import com.funnyb.cwc.combat.behavior.Button;
 import com.funnyb.cwc.combat.behavior.WeaponBehavior;
-import com.funnyb.cwc.crafting.PartNode;
 import com.funnyb.cwc.layout.Layouts;
 import com.funnyb.cwc.network.serverbound.CwcMainHandAttackPacket;
 import com.funnyb.cwc.network.serverbound.CwcOffhandAttackPacket;
-import com.funnyb.cwc.registry.CwcDataComponents;
 import com.funnyb.cwc.registry.CwcItems;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
@@ -32,8 +31,6 @@ import net.neoforged.neoforge.client.event.InputEvent;
 import net.neoforged.neoforge.client.event.RegisterClientReloadListenersEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 
-import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -83,13 +80,14 @@ public class CwcClientEvents {
      * 把全部跨 tick 记忆恢复成初始态。
      * <p>
      * <b>本类新增静态可变字段时，记得加进来。</b>
+     * <p>
+     * "主手武器身份"那三个字段**曾经**在这里（2026-09-27 搬到 {@link WeaponSwapCooldown}）：
+     * 那边的状态是 {@code WeakHashMap<Player, …>}，玩家对象释放即回收，不再需要手写一份清空——
+     * 也就不存在"新加了字段忘了加进来"这个坑。
      */
     private static void resetTransientState() {
         holdModeLocked = false;
         holdModeMining = false;
-        lastMainHandId = null;
-        lastMainHandSlots = null;
-        mainHandChangedTick = NO_WEAPON_CHANGE;
         sawMainHandUse = false;
         sawOffhandUse = false;
         offhandAutoSuspended = false;
@@ -250,21 +248,6 @@ public class CwcClientEvents {
     private static final int WEAPON_SETTLE_TICKS = 2;
 
     /**
-     * 主手武器的"身份"——用 {@code PART_IDENTITY} + {@code ASSEMBLED_SLOTS} 表示。
-     * **刻意不含耐久**：1.21 里耐久是数据组件，武器每次命中都会掉，而耐久不影响攻速/交互距离。
-     * 若拿整份组件去比（{@code ItemStack.matches} / {@code isSameItemSameComponents}），
-     * 每次命中都会被误判成"刚换了武器"，反而把自动攻击卡住。
-     */
-    private static String lastMainHandId = null;
-    private static Map<String, PartNode> lastMainHandSlots = null;
-
-    /** "从未换过武器"的哨兵值——远早于任何真实 {@code tickCount}，让首次比较不会误判成"刚换" */
-    private static final int NO_WEAPON_CHANGE = -1000;
-
-    /** 主手武器身份最后一次变化时所在的 {@link Player#tickCount} */
-    private static int mainHandChangedTick = NO_WEAPON_CHANGE;
-
-    /**
      * 更新"主手武器是否刚换过"，并返回现在能否出手。
      * <p>
      * 换武器（无论从普通物品换过来还是两把模组武器互换）时，客户端本地的 {@code ATTACK_SPEED} /
@@ -276,25 +259,18 @@ public class CwcClientEvents {
      * （{@link CwcCombat#isServerCooldownReady}），不再受换武器时的攻速条复位影响；
      * 但伤害与交互距离读的仍是服务端侧属性，那些要等换手包到达才算数。
      * <p>
-     * 每 tick 都调（{@link #onClientTick} 里保持状态新鲜），点击路径也会在 {@link #tryMainHandAttack}
-     * 里再调一次，保证早于 tick 末尾的按下同样能被拦住。
+     * <b>"换没换"这个事实不归本类了</b>：身份的定义（{@code PART_IDENTITY} + {@code ASSEMBLED_SLOTS}，
+     * 刻意不含耐久）、它的历史、以及由它派生的换手计费，全在 {@link WeaponSwapCooldown}——那边是
+     * **两只手、两个逻辑侧**共用的同一份事实，本类只是它的一个调用点。
      * <p>
-     * <b>2026-09-17 修正：</b>{@code ASSEMBLED_SLOTS} 的值曾是 {@code Map<String,ItemStack>}，而
-     * {@code ItemStack} 没有值语义 {@code equals}，于是**每次命中掉耐久**引发的整栈重发都会让这个比较
-     * 判成"刚换武器"，白丢一次攻击。现在值是 {@link PartNode}（record，值语义递归成立），比较才真正
-     * 表示"装配内容变了吗"；也不必再拷贝——组件里的 map 不可变且值语义。
+     * 每 tick 都调（{@link #onClientTick} 里保持状态新鲜），点击路径也会在 {@link #tryMainHandAttack}
+     * 里再调一次，保证早于 tick 末尾的按下同样能被拦住。**那个"再调一次"是必须的**：
+     * {@code PlayerTickEvent.Post} 在 {@code Player.tick()} 末尾触发、早于 {@code handleKeybinds}，
+     * 所以客户端**不能**靠事件提前刷新（挂了会把变化提前消费掉，这几行的门槛当场失效）。
      */
     private static boolean mainHandSettled(Player player) {
-        ItemStack stack = player.getMainHandItem();
-        String id = stack.get(CwcDataComponents.PART_IDENTITY.get());
-        Map<String, PartNode> slots = stack.get(CwcDataComponents.ASSEMBLED_SLOTS.get());
-        if (!Objects.equals(lastMainHandId, id) || !Objects.equals(lastMainHandSlots, slots)) {
-            lastMainHandId = id;
-            lastMainHandSlots = slots;
-            mainHandChangedTick = player.tickCount;
-            return false;   // 本 tick 刚换：先不出手
-        }
-        return player.tickCount - mainHandChangedTick >= WEAPON_SETTLE_TICKS;
+        WeaponSwapCooldown.observe(player);
+        return player.tickCount - WeaponSwapCooldown.mainHandSwapTick(player) >= WEAPON_SETTLE_TICKS;
     }
 
     // —— 副手自动攻击的挂起状态（见 onUseKey / onClientTick）——
