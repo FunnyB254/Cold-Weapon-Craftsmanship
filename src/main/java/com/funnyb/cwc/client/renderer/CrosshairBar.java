@@ -9,11 +9,17 @@ import net.minecraft.resources.ResourceLocation;
 /**
  * 攻击指示器那条（进度条 / 满格图标）的**几何与画法——唯一一份**。
  * <p>
- * 主手与副手两条的差别只有一个字："镜像"。主手那条在准星**下方**（照原版 {@code renderCrosshair} 的口径），
- * 副手那条取它关于**准星精灵中心行**的镜像（{@link #mirroredBarY}），于是两边在"未满"和"满"两个状态下
- * 到准星的距离都一致。
+ * 主手与副手两条的差别只有一个字："镜像"——而且是**两层**镜像（作者 2026-09-27 定的第二层）：
+ * <ul>
+ *   <li><b>位置</b>：主手那条在准星<b>下方</b>（照原版 {@code renderCrosshair} 的口径），副手那条取它关于
+ *       <b>准星精灵中心行</b>的镜像（{@link #mirroredBarY}），于是两边在"未满"和"满"两个状态下到准星的
+ *       距离都一致；</li>
+ *   <li><b>画面</b>：副手那条的 sprite 自身**上下 + 左右都翻**（见 {@link #blit}）——上下是为了让可见内容
+ *       贴着准星（理由见下），左右是为了让它成为主手那条真正的镜像：这三张 sprite 画的是一条**横躺的小剑**，
+ *       列 0–3 是剑柄、列 4–15 是充能填的剑身，所以左右一翻，剑柄就到右边、充能从右往左长。</li>
+ * </ul>
  * <p>
- * <b>"三张 sprite 要垂直翻转再画"的来历</b>（这段是调了四轮才对上的，别简化）：
+ * <b>"sprite 要翻转再画"的来历</b>（这段是调了四轮才对上的，别简化）：
  * 原版这三张 sprite 是给"准星<b>下方</b>"设计的，而且**可见内容在自己的贴图框里并不居中**——
  * 16×4 的条内容在第 1–2 行（第 0/3 行只有 x=3 一个像素，近似居中），16×16 的满格图标内容只占第 0–6 行、
  * 下面 9 行**全透明**（顶对齐）。副手那条要画在准星<b>上方</b>：不翻的话条的位置近似没问题，但满格图标的
@@ -30,7 +36,7 @@ import net.minecraft.resources.ResourceLocation;
  *       → 图会被画到框上方，绕序同样反转；</li>
  *   <li>自备翻转贴图：要往 jar 里塞派生自原版的 png。</li>
  * </ul>
- * 逐行倒序只动 UV：几何与绕序都不变，也不需要任何 GL 状态。
+ * 逐像素倒序只动 UV：几何与绕序都不变，也不需要任何 GL 状态（代价是采样次数 = 宽 × 高，见 {@link #blit}）。
  * <p>
  * <b>反色混合由调用方成对开关</b>（{@link #enableInvertBlend} / {@link #disableInvertBlend}），
  * {@link #render} 自己不碰 GL 状态——准星本体与两条指示器用的是同一档混合，一次 bracket 就够。
@@ -62,19 +68,21 @@ public final class CrosshairBar {
      *
      * @param readiness 就绪度 0~1（1 = 可以出手）；主手用攻速条，副手用出刀自己的独立冷却
      * @param hasTarget 是否存在可命中的目标（横扫 = 范围内有东西，单体 = 准星目标可命中）
-     * @param mirrored  true = 画在准星上方（副手），sprite 垂直翻转、图标与条底对齐
+     * @param mirrored  true = 画在准星上方且**整条左右镜像**（副手那条）：sprite 上下 + 左右都翻、
+     *                  图标与条底对齐。见 {@link #blit} 对"镜像"的定义
      */
     public static void render(GuiGraphics gui, float readiness, boolean hasTarget, boolean mirrored) {
         int x = gui.guiWidth() / 2 - 8;      // 16 宽居中于准星
         if (readiness >= 1.0F) {
             if (hasTarget) {
                 blit(gui, FULL, x, mirrored ? mirroredIconY(gui.guiHeight()) : belowY(gui.guiHeight()),
-                        ICON_SIZE, ICON_SIZE, mirrored);
+                        ICON_SIZE, ICON_SIZE, ICON_SIZE, mirrored);
             }
         } else {
             int barY = mirrored ? mirroredBarY(gui.guiHeight()) : belowY(gui.guiHeight());
-            blit(gui, BACKGROUND, x, barY, BAR_WIDTH, BAR_HEIGHT, mirrored);
-            blit(gui, PROGRESS, x, barY, (int) (readiness * PROGRESS_WIDTH_BASE), BAR_HEIGHT, mirrored);
+            blit(gui, BACKGROUND, x, barY, BAR_WIDTH, BAR_HEIGHT, BAR_WIDTH, mirrored);
+            blit(gui, PROGRESS, x, barY, BAR_WIDTH, BAR_HEIGHT,
+                    (int) (readiness * PROGRESS_WIDTH_BASE), mirrored);
         }
     }
 
@@ -127,18 +135,33 @@ public final class CrosshairBar {
     // —— 画 ——
 
     /**
-     * 1:1 画一张 sprite。
+     * 1:1 画一张 sprite——可能只画它左端的一段（进度条按就绪度截取）。
      *
-     * @param flipped true = 垂直翻转（逐行倒序采样贴图，见类注释）
+     * @param width  盒子宽（也是 sprite 自身的宽，三张都是 16）
+     * @param shown  实际画多宽：背景/图标是整张，进度条是就绪度那一截
+     * @param flip   true = 副手那条：**整条关于盒子的竖直中线镜像**（上下 + 左右都翻）。
+     *               <p>
+     *               镜像是**按盒子算**的，不是"把 sprite 自己的 UV 翻一遍"：盒子第 c 列显示源列
+     *               {@code width - 1 - c}。于是源列 {@code [0, shown)} 会落到盒子的**右端**
+     *               {@code [width - shown, width)} —— 这正是"左右翻转"该有的样子（剑柄换到右边、
+     *               充能从右往左长）；若只在原位置翻 UV，充能会从**剑尖**那一端长出来，那是错的。
+     *               <p>
+     *               代价是逐像素采样：满格图标 16×16 = 256 次 quad、条 16×4 = 64 次。
+     *               仅在副手那条可见时发生，且这里没有更便宜的做法（见类注释里被否掉的三条路）。
      */
     private static void blit(GuiGraphics gui, ResourceLocation sprite, int x, int y,
-                             int width, int height, boolean flipped) {
-        if (!flipped) {
-            gui.blitSprite(sprite, x, y, width, height);
+                             int width, int height, int shown, boolean flip) {
+        if (!flip) {
+            gui.blitSprite(sprite, x, y, shown, height);
             return;
         }
-        for (int row = 0; row < height; row++) {
-            gui.blitSprite(sprite, width, height, 0, height - 1 - row, x, y + row, width, 1);
+        // 逐像素倒序采样：UV 同时按 u→width-1-u、v→height-1-v 映射，几何与绕序都不变。
+        // 下界做了夹取：shown 可能是 17（PROGRESS_WIDTH_BASE 那个故意的溢出），此时整条画满即可。
+        for (int col = Math.max(0, width - shown); col < width; col++) {
+            int u = width - 1 - col;
+            for (int row = 0; row < height; row++) {
+                gui.blitSprite(sprite, width, height, u, height - 1 - row, x + col, y + row, 1, 1);
+            }
         }
     }
 }
