@@ -4,7 +4,9 @@ import org.slf4j.Logger;
 
 import com.mojang.logging.LogUtils;
 import com.funnyb.cwc.combat.CwcCombatEvents;
+import com.funnyb.cwc.combat.CwcOwnership;
 import com.funnyb.cwc.crafting.PartRegistry;
+import com.funnyb.cwc.registry.CwcAttachments;
 import com.funnyb.cwc.registry.CwcCreativeTabs;
 import com.funnyb.cwc.registry.CwcDataComponents;
 import com.funnyb.cwc.registry.CwcItems;
@@ -53,9 +55,11 @@ public class ColdWeaponCraftsmanship {
         CwcCreativeTabs.init(modEventBus);
         CwcMenuTypes.init(modEventBus);
         CwcDataComponents.init(modEventBus);
+        CwcAttachments.init(modEventBus);
 
         NeoForge.EVENT_BUS.register(this);
         NeoForge.EVENT_BUS.register(new CwcCombatEvents());
+        NeoForge.EVENT_BUS.register(new CwcOwnership());
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
     }
 

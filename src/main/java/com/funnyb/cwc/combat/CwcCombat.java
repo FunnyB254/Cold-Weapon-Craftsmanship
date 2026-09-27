@@ -516,9 +516,10 @@ public final class CwcCombat {
      * 覆盖范围：{@code OwnableEntity} = {@code TamableAnimal}（狼/猫/鹦鹉等）+ {@code AbstractHorse}
      * （马/驴/骡/羊驼/骆驼等）。**别人（含队友）的宠物都不在内**——与原版一致。
      * <p>
-     * 客户端提示的已知误差：马的 owner UUID 只写在 NBT 里、**不同步到客户端**，所以客户端
-     * {@link #hasSweepTarget} 认不出"这是我的马"，会把它算成一个候选（指示器可能亮、服务端却不结算）。
-     * 只影响那一个图标的亮灭，不涉及任何结算；宠物（{@code TamableAnimal}）的 owner UUID 走实体数据同步，无此问题。
+     * <b>两端同源</b>：主人这一题经 {@link CwcOwnership#ownerOf} 取，而不是直接 {@code own.getOwner()}——
+     * 马的 owner 原版只写在 NBT 里、**不同步到客户端**，客户端那侧恒为 null，直接问会认不出"这是我的马"，
+     * 表现为客户端 {@link #hasSweepTarget} 把它算成候选（指示器亮、服务端却不结算）。
+     * 服务端读原版字段、客户端读同步副本，详见 {@code CwcOwnership} 与 {@code CwcAttachments}。
      */
     /**
      * 队友能不能被本模组**准星正对**打中——**听队伍的 {@code friendlyFire}**（作者 2026-09-19 的需求）。
@@ -551,7 +552,9 @@ public final class CwcCombat {
 
     private static boolean isSweepFriendly(Player player, Entity e) {
         if (player.isAlliedTo(e)) return true;   // 队友：副目标**一律**不卷进来（友伤开着也一样）
-        return e instanceof OwnableEntity own && own.getOwner() == player;   // 我的宠物 / 坐骑
+        // 我的宠物 / 坐骑——经 CwcOwnership 取主人：马的 owner 原版不同步到客户端，
+        // 直接 own.getOwner() 在客户端恒为 null（见 CwcAttachments）
+        return e instanceof OwnableEntity own && player.getUUID().equals(CwcOwnership.ownerOf(own));
     }
 
     // ==================== 骑乘链保护 ====================
