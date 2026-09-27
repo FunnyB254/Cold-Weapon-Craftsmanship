@@ -7,7 +7,6 @@ import com.funnyb.cwc.combat.behavior.WeaponBehavior;
 import com.funnyb.cwc.crafting.AssemblyTree;
 import com.funnyb.cwc.crafting.PartTypeDef;
 import com.funnyb.cwc.crafting.WeaponStats;
-import com.funnyb.cwc.registry.CwcDataComponents;
 import com.funnyb.cwc.registry.CwcItems;
 
 import net.minecraft.ChatFormatting;
@@ -66,11 +65,15 @@ public class CwcWeapon extends TieredItem {
      * 所以没有同步开销。
      * <p>
      * 只覆盖玩家背包里的物品——箱子里的要等被拿起来才自愈，可接受。
+     * <p>
+     * <b>不再跳过裸手柄</b>（2026-09-27）：原先这里有一句"没有 {@code ASSEMBLED_SLOTS} 就直接返回"，
+     * 作为"裸手柄无事可做"的省事优化。但手柄自身也可能带 durability（把 {@code cwc:handle} 换成
+     * {@code cwc:default}/{@code cwc:metal} 即可），那句早退会让那笔数永远同步不上去——即"写了不生效、
+     * 也不报错"。现在与装了零件的手柄走同一条路，代价是裸手柄每 tick 多一次树遍历。
      */
     @Override
     public void inventoryTick(ItemStack stack, Level level, Entity entity, int slotId, boolean isSelected) {
         if (level.isClientSide) return;   // 服务端权威，客户端等同步
-        if (!stack.has(CwcDataComponents.ASSEMBLED_SLOTS.get())) return;   // 裸手柄无事可做，省一次树遍历
         WeaponStats.syncDurability(stack);
     }
 

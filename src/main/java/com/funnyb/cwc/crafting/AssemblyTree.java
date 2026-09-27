@@ -134,7 +134,16 @@ public final class AssemblyTree {
     /** 全部后代节点，DFS 前序、槽位声明序 */
     public List<Node> nodes() { return nodes; }
 
-    /** 是否装了至少一个零件——"属性只在装配后产生"的判据 */
+    /**
+     * 是否装了至少一个**子件**（根节点本身不算）。
+     * <p>
+     * <b>2026-09-27 起它不再是"有没有属性"的判据。</b>属性与耐久本来就把根节点自身算在内
+     * （见构造器里那句"根节点自身也参与判定"），而 {@code WeaponStats} 与 {@code CwcWeapon} 里
+     * 以本方法为条件的过滤已全部拆掉——"手柄自己带数值"不再是被丢弃的死数。
+     * <p>
+     * 现在唯一的读者是 {@code CwcWeapon.appendHoverText}：裸手柄不显示"主手右键：格挡"那几行行为读数，
+     * 装了零件才显示（那几行是**行为**，不是数值）。
+     */
     public boolean hasParts() { return !nodes.isEmpty(); }
 
     /** 实际用到的最大深度（根的直接子件为 1） */

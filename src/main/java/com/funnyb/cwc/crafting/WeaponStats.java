@@ -54,30 +54,34 @@ public final class WeaponStats {
     /**
      * 按装配树现算主手属性 modifier——**不落组件**。
      * <p>
-     * 未装任何零件时返回 {@link ItemAttributeModifiers#EMPTY}，回落物品默认属性——即"属性只在装配后产生"，
-     * 与旧的"无零件则清空组件"语义一致。
+     * 伤害与攻速**无条件写**（值是 0 也写）。这两笔的 id 是原版 base id，NeoForge 的 tooltip 对 base
+     * modifier 不做 0 值过滤、还会把玩家基础值加进去显示**总值**，所以裸手柄也会显示
+     * "1 攻击伤害 / 4 攻击速度"——那正是它拿在手里的真实数值（根节点自身的数值也参与聚合，
+     * 见 {@link AssemblyTree}）。
+     * <p>
+     * <b>2026-09-27 拆掉的那道过滤</b>：这里原先第一句是"没装任何零件就返回
+     * {@link ItemAttributeModifiers#EMPTY}"。而 {@code AssemblyTree} 一直在算根节点自己的数值，
+     * 于是"手柄自己带数值"成了算了却没人读的死数——**既不显示、也不生效、还不报错**。
+     * 作者定：拆掉，让根手柄的数值和装了零件的一样活。
      * <p>
      * <b>不加缓存。</b>装配树最多几个节点，而这个方法的调用点只有三处：装备变更（属性表重建）、
      * 伤害结算、tooltip 渲染。tooltip 虽然是每帧重建，代价也就是几十次 map 查找。
      */
     public static ItemAttributeModifiers deriveModifiers(ItemStack stack) {
         AssemblyTree tree = AssemblyTree.of(stack);
-        if (!tree.hasParts()) return ItemAttributeModifiers.EMPTY;
 
         var builder = ItemAttributeModifiers.builder()
                 .add(Attributes.ATTACK_DAMAGE,
                         new AttributeModifier(DMG_ID, tree.damage(), AttributeModifier.Operation.ADD_VALUE),
+                        EquipmentSlotGroup.MAINHAND)
+                // 攻速：零件给的**绝对贡献**（最终攻速 = 玩家基础 4.0 + 这里）。模组不再固定偏移——
+                // 那笔"装好零件就 −2.4"过去藏在代码里，于是"手柄/刃谁决定攻速"在数据上无从表达；
+                // 现在它由刃的 speed 承担（见 docs/part-format.md 的属性键表）。**0 也写**（理由同伤害）。
+                .add(Attributes.ATTACK_SPEED,
+                        new AttributeModifier(SPD_ID, tree.speed(), AttributeModifier.Operation.ADD_VALUE),
                         EquipmentSlotGroup.MAINHAND);
-        // 攻速：零件给的**绝对贡献**（最终攻速 = 玩家基础 4.0 + 这里）。模组不再固定偏移——
-        // 那笔"装好零件就 −2.4"过去藏在代码里，于是"手柄/刃谁决定攻速"在数据上无从表达；
-        // 现在它由刃的 speed 承担（见 docs/part-format.md 的属性键表）。0 就不写，免得 tooltip
-        // 多一行没有意义的"攻速 4"。
-        if (tree.speed() != 0.0) {
-            builder.add(Attributes.ATTACK_SPEED,
-                    new AttributeModifier(SPD_ID, tree.speed(), AttributeModifier.Operation.ADD_VALUE),
-                    EquipmentSlotGroup.MAINHAND);
-        }
-        // 加成非 0 才写入，避免无刃/平衡刃武器带多余 modifier
+        // 这两笔**非 0 才写**，与上面两笔相反：它们没有原版 base id（走通用分支），NeoForge 会把 0 值的
+        // 通用 modifier 整个过滤掉——写了既不显示，又白白塞进玩家属性表
         if (tree.knockback() != 0.0) {
             builder.add(Attributes.ATTACK_KNOCKBACK,
                     new AttributeModifier(KB_ID, tree.knockback(), AttributeModifier.Operation.ADD_VALUE),
@@ -110,12 +114,14 @@ public final class WeaponStats {
         if (stack.getItem() != CwcItems.HANDLE_PART.get()) return;
 
         AssemblyTree tree = AssemblyTree.of(stack);
-        int expected = tree.hasParts() && tree.durability() > 0
+        // 只看聚合结果里有没有耐久，不再要求"装过零件"——手柄自身（换掉 cwc:handle 那个不带 data 的形状
+        // 之后）也能带 durability，2026-09-27 起那笔数与装了零件的一样生效
+        int expected = tree.durability() > 0
                 ? Math.max(1, (int) Math.round(tree.durability()))
                 : 0;
 
         if (expected <= 0) {
-            // 未装配 / 零件完全不贡献耐久 → 回落到**物品自带**的上限（底座自己是个会被磨损的物品）。
+            // 整棵装配树（含根）都不贡献耐久 → 回落到**物品自带**的上限（底座自己是个会被磨损的物品）。
             // 这里**不能**用 remove()：那会在补丁里写下"移除"、把物品原型上的值也盖掉，于是上限变 0、
             // 裸手柄变得不可损坏——而它与"空手"的差别本来只该是"它有耐久"。写成原型值即可解开这层遮蔽。
             int base = stack.getPrototype().getOrDefault(DataComponents.MAX_DAMAGE, 0);

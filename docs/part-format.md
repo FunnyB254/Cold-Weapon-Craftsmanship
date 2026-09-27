@@ -126,7 +126,8 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 `mainHandUse`**——所以同一把刃插双手手柄会格挡、插单手手柄不会。于是"能不能格挡"由**刃声明与手柄放行
 两者相与**决定，不是任何一方单独说了算。
 
-**结果就写在武器自己的 tooltip 上**（装配之后才出现，与"属性只在装配后产生"同一条口径）：
+**结果就写在武器自己的 tooltip 上**（这几行行为读数**装配之后才出现**——裸手柄加它们只是噪音；
+注意这与**属性**行不同：伤害/攻速那两行走装配树现算，裸手柄也显示，见下方「属性键」）：
 有胜者的字段各占一行（`主手右键：格挡`），没声明的字段不出现，并列的字段用**红字**说明是哪两个槽在抢
 （`攻击方式：刃槽 / 副刃槽 的优先级同为 100，该动作不会生效`）。这是"这件武器到底能做什么"以及
 "某个动作为什么没反应"的唯一界面入口——装配台底座槽、背包、JEI 看到的是同一份。
@@ -225,7 +226,7 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 |---|---|---|
 | `cwc:default` | 数字或字符串 | 通用形状：`weight` 这类语义键用字符串，`block` 这类数值用数字 |
 | `cwc:metal` | `{base, hardnessMultiplier, toughnessMultiplier}` | 金属零件 |
-| `cwc:handle` | 恒为空 | 手柄零件（自身不贡献属性） |
+| `cwc:handle` | 恒为空 | 手柄零件的常用形状——**是这个形状不携带 data**，不是"手柄不贡献属性"：手柄想自己带 `damage`/`speed`/`durability`，把 `parser` 换成 `cwc:default` / `cwc:metal` 即可（角色判据是**类型**的 data 空不空，与零件的 parser 无关） |
 
 **⚠ 两个乘数目前完全不参与计算**：数值只取 `base`。它们属于**尚未实现的「锻造」系统**——
 所有材料的平均值与范围相同，材料差异由锻造的系数与常数表达，所以各零件的乘数一致是**刻意的**，
@@ -257,6 +258,9 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 
 - 数值直接使用；金属公式对象只取 `base`；**缺失的属性按 0 计**（如镡只写 `weight` + `block`）
 - 聚合时按**该零件所在槽位的 `scale`** 加权累加
+- **根节点（底座）自身也参与聚合**，权重按 1（它没有"所在槽位"）。所以手柄的零件定义写了数值就直接
+  算进这把武器——**没装任何子件时同样生效、也显示在 tooltip 上**（2026-09-27 起；那之前裸手柄的数值
+  被"没装零件就没有属性"的过滤丢掉，属于"写了不生效、也不报错"）
 - **属性不写进物品组件，而是每次查询时从装配树现算**（`CwcWeapon.getDefaultAttributeModifiers`）。
   唯一被物化的是**耐久上限**（它推导不了：`ItemStack.getMaxDamage()` 只读组件，`Item` 拦不住），
   由装配台写入 + 背包内每 tick 自愈，保证非装配台路径产出的武器也有耐久
