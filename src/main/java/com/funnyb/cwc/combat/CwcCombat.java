@@ -616,10 +616,11 @@ public final class CwcCombat {
      * **下来才能打**（这一条与原版一致——原版的准星拾取同样拦着，见 `docs/bugs.md` BUG-031）。
      * <p>
      * <b>尸体不候选</b>（2026-09-28）：血量归零的活体打不出伤害（见 {@link #canHitTarget} 里同一条闸），
-     * 把它算进来只会让"站在尸体堆里"也亮。
+     * 把它算进来只会让"站在尸体堆里"也亮。判据用 {@code Entity.isAlive()}——对 {@link LivingEntity}
+     * 它含"血量 &gt; 0"，对船 / 矿车它只是"没被移除"，于是既排除尸体又不动载具。
      */
     private static boolean isSweepCandidate(Entity e) {
-        if (e instanceof LivingEntity living && living.isDeadOrDying()) return false;   // 尸体不候选
+        if (!e.isAlive()) return false;   // 尸体不候选（LivingEntity 的 isAlive() 含"血量 > 0"）
         return e instanceof LivingEntity || e instanceof Boat || e instanceof AbstractMinecart;
     }
 
@@ -808,9 +809,11 @@ public final class CwcCombat {
      */
     public static boolean canHitTarget(Player player, Entity target, ItemStack weapon, InteractionHand hand) {
         if (target == null || target == player || !target.isAttackable()) return false;
-        // 血量归零的活体：打不出伤害——原版 LivingEntity.hurt 的死活闸就是这一条，那里直接返回 false。
-        // 这里补上同一条，才配得上本方法"与攻击结算同规则"的说法（否则"选中了/亮着却打不到"）。
-        if (target instanceof LivingEntity living && living.isDeadOrDying()) return false;
+        // 死掉的（血量归零的活体）打不出伤害——原版 LivingEntity.hurt 的死活闸就是这个条件，那里直接
+        // 返回 false。这里用同一个判据（LivingEntity 的 isAlive() 含"血量 > 0"），才配得上本方法
+        // "与攻击结算同规则"的说法（否则"选中了/亮着却打不到"）。船与矿车不是 LivingEntity，
+        // Entity.isAlive() 对它们只是"没被移除"，照旧放行。
+        if (!target.isAlive()) return false;
         if (isRideChainDown(player, target)) return false;   // 骑乘链向下：准星对着也不算可命中
         WeaponBehavior attack = BehaviorResolver.behaviorFor(weapon, BehaviorField.ATTACK);
         return attack != null && attack.canHit(player, target, weapon, hand);
@@ -860,15 +863,16 @@ public final class CwcCombat {
      *       **不看**友军、**不看**几何，能不能打到是结算的事。所以本模组也不再自己发明精确预测：
      *       预测得越细，就越容易和服务端结算对不上（这个坑本模组踩过好几轮）。
      *       <p>
-     *       这一条**两处收紧过，都不是原版字面**，差别要记着：
+     *       这一条**只收紧过一次**，且现在与原版逐字同形：
      *       <ul>
      *         <li>2026-09-27：从"有**任何** {@code Entity} 就亮"收成"必须是活体"——原先的代码与本方法
      *             自己的注释（"准星拾取到活体"）都对不上；</li>
-     *         <li>2026-09-28：从 {@code isAlive()} 收成 {@code !isDeadOrDying()}（血量 &gt; 0）。
-     *             <b>原版那个 {@code isAlive()} 其实是"还没被移除"</b>，所以死亡动画那约 20 tick 里
-     *             尸体血量已归零、**原版照样亮**；作者要"尸体不亮"，故比原版**严这一档**，
-     *             而且这与本模组自己的攻击口径一致（原版 {@code LivingEntity.hurt} 对血量归零者
-     *             直接返回 false，也就是"亮着却打不到"）。</li>
+     *         <li>2026-09-28：改用 {@code isAlive()}，即 {@code Gui.java:464} 的原样写法。
+     *             <b>{@code LivingEntity} 覆写了它</b>（{@code LivingEntity.java:1631-1634}：
+     *             {@code !isRemoved() && getHealth() > 0}），所以死亡动画中的尸体**原版本就不亮**。
+     *             <br>⚠ 这一条我曾误判成"原版会亮、我们在比原版严"——因为我只读了
+     *             {@code Entity.isAlive()}（{@code !isRemoved()}）而没查 {@code LivingEntity} 的覆写。
+     *             现在写法已回到原版字面（当时那版 {@code !isDeadOrDying()} 其实与它等价，是判词写错了）。</li>
      *       </ul>
      *       <p>
      *       "非活体不亮"这一条**光靠本方法做不到**：判据的第 2 条当年会把准星目标再问一遍、
@@ -901,10 +905,9 @@ public final class CwcCombat {
      */
     public static boolean hasAnyAttackableTarget(Player player, ItemStack weapon, InteractionHand hand, Entity crosshairTarget) {
         // ① 准星处是活着的活体 → 亮（含向上骑乘链的补点，见方法注释第 1 条）
-        //    ⚠ 这里用 isDeadOrDying（血量 <= 0），**不是**原版字面的 isAlive()——原版那个是
-        //    "还没被移除"，死亡动画那 20 tick 里原版照样亮。作者 2026-09-28 要尸体不亮，
-        //    故比原版严这一档；顺带与本模组自己的攻击口径一致（LivingEntity.hurt 对血量归零者返回 false）。
-        if (crosshairTarget instanceof LivingEntity living && !living.isDeadOrDying()) return true;
+        //    与原版逐字同形：LivingEntity 覆写了 isAlive()——它是 !isRemoved() && getHealth() > 0，
+        //    所以死亡动画中（血量归零）这一条自然不成立，**原版对尸体本来就不亮**。
+        if (crosshairTarget instanceof LivingEntity living && living.isAlive()) return true;
         if (pickUpperRideChain(player, resolveReach(player, hand, weapon)) != null) return true;
 
         // ② 准星处没实体：交给行为（今天实际只剩横扫的范围扫描）
