@@ -156,15 +156,19 @@ public class CwcWeapon extends TieredItem {
      * 而加载期的 WARN 只知道"两个槽位优先级相同"这个潜力（不知道你有没有把两个槽都装满）。
      * <p>
      * 只列**有胜者**与**并列**的字段：没声明的字段不出现（"副手右键：无"和它不出现是同一个信息）。
-     * 只在装配后出现——与"属性只在装配后产生"同一条口径，裸手柄加这三行只是噪音。
+     * <b>裸手柄也照这条规则显示</b>（2026-09-27）：原先这里第一句是"没装零件就直接返回"，理由是
+     * "裸手柄加这几行只是噪音"——但空手柄在每一条**游戏**路径上都与装配后的武器同等对待
+     * （{@code HANDLE_PART} 就够，没有任何地方检查装没装零件），只在 tooltip 上开特例会让"这件武器
+     * 到底能做什么"在没插零件时反而看不出来。删掉之后：类型自己声明的字段（如两个手柄都声明了
+     * {@code attack}）在空手柄上也占一行，装配后多出来的声明再逐条加上——同一套规则，内容随数据变。
      * <p>
-     * 位置由原版决定（属性行、附魔行之后），本模组不控制；装配台底座槽、背包、创造栏、JEI 走的是同一条路径。
+     * 位置由原版决定（在物品名之后、属性行**之前**：原版先调本方法、再调属性 tooltip），
+     * 本模组不控制；装配台底座槽、背包、创造栏、JEI 走的是同一条路径。
      */
     @Override
     public void appendHoverText(ItemStack stack, Item.TooltipContext context,
                                 List<Component> tooltip, TooltipFlag flag) {
         AssemblyTree tree = AssemblyTree.of(stack);
-        if (!tree.hasParts()) return;
         BehaviorResolver.Diagnosis diagnosis = BehaviorResolver.diagnose(tree);
         for (BehaviorField field : BehaviorField.values()) {
             BehaviorResolver.Tie tie = diagnosis.ties().get(field);
