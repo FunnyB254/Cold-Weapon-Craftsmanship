@@ -1,0 +1,33 @@
+{
+  "parser": "cwc:metal",
+  "type": "coldweaponcraftsmanship:short_blade",
+  "data": {
+    "damage": {
+      "base": 0.8,
+      "hardnessMultiplier": 0.5,
+      "toughnessMultiplier": 0
+    },
+    "speed": {
+      "base": -1.2,
+      "hardnessMultiplier": 0,
+      "toughnessMultiplier": 0
+    },
+    "durability": {
+      "base": 20,
+      "hardnessMultiplier": 5,
+      "toughnessMultiplier": 2
+    }
+  },
+  "recipes": [
+    {
+      "ingredients": [
+        {},
+        {
+          "item": "minecraft:cobblestone",
+          "count": 1
+        },
+        {}
+      ]
+    }
+  ]
+}

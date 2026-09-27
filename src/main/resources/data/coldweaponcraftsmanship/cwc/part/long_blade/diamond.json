@@ -1,0 +1,33 @@
+{
+  "parser": "cwc:metal",
+  "type": "coldweaponcraftsmanship:long_blade",
+  "data": {
+    "damage": {
+      "base": 6.0,
+      "hardnessMultiplier": 0.5,
+      "toughnessMultiplier": 0
+    },
+    "speed": {
+      "base": -3.1,
+      "hardnessMultiplier": 0,
+      "toughnessMultiplier": 0
+    },
+    "durability": {
+      "base": 192,
+      "hardnessMultiplier": 5,
+      "toughnessMultiplier": 2
+    }
+  },
+  "recipes": [
+    {
+      "ingredients": [
+        {},
+        {
+          "item": "minecraft:diamond",
+          "count": 4
+        },
+        {}
+      ]
+    }
+  ]
+}
