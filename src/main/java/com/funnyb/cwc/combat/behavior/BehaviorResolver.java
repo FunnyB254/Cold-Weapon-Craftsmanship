@@ -172,6 +172,15 @@ public final class BehaviorResolver {
      * 判定"另一只手上的那把武器"，与旧代码里的 {@code isTwoHandedStack(player.getMainHandItem())}
      * 同向：手上拿着双手武器时，副手出刀被挡。反向也成立（副手握着声明了 disableOffHand 的武器时，
      * 主手右键归它）——目前没有数据这么用，但规则是对称的。
+     * <p>
+     * <b>两个消费者，别只想到一个</b>（2026-09-27 补齐第二个）：
+     * <ul>
+     *   <li>{@link BehaviorDispatch#resolve}——本模组**不接管**这只手的右键。注意这一半是"放行原版"
+     *       （不接管 = 原版照旧），单靠它挡不住原版动作；</li>
+     *   <li>{@code CwcClientEvents.onUseKey} 的副手轮——**整轮作废，原版也挡**。装配后的双手武器靠
+     *       "主手消费 → 原版 {@code startUseItem} 的 for 循环不进副手那一轮"顺带达到同一效果；
+     *       空手柄没有可消费的主手动作，必须靠这一句，否则"拿着空的双双手柄仍能用副手放方块"。</li>
+     * </ul>
      */
     public static boolean otherHandBlocks(Player player, InteractionHand hand) {
         InteractionHand other = hand == InteractionHand.MAIN_HAND

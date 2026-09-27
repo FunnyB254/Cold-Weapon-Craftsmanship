@@ -33,7 +33,8 @@ import java.util.function.Function;
  * @param mainHandUse  该物品**在主手**时右键做什么。缺失 = 原版 use 路径照旧（放方块/交互）
  * @param offHandUse   该物品**在副手**时右键做什么。缺失 = 副手右键交给原版
  * @param attack       该物品的攻击方式——**在哪只手就按那只手读**（短刀在副手时用的就是它）
- * @param disableOffHand 是否屏蔽另一只手的动作（"双手武器占用右键"那条规则）。默认 false。
+ * @param disableOffHand 是否屏蔽另一只手的动作（"双手武器占用双手"那条规则）。**含原版动作**——
+ *                       副手放方块 / 用桶 / 喂食一并挡掉，不只是本模组的副手出刀。默认 false。
  *                     本层按 OR 生效（根 + 直接子件），**子树内部的不外传**
  *                     <p>
  *                     <b>三个旧键（{@code twoHanded} / {@code offhandAttack} / {@code combat.style}）已废弃</b>：

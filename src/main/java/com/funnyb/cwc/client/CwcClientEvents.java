@@ -4,6 +4,7 @@ import com.funnyb.cwc.ColdWeaponCraftsmanship;
 import com.funnyb.cwc.client.renderer.AssembledWeaponRenderer;
 import com.funnyb.cwc.combat.CwcCombat;
 import com.funnyb.cwc.combat.behavior.BehaviorDispatch;
+import com.funnyb.cwc.combat.behavior.BehaviorResolver;
 import com.funnyb.cwc.combat.behavior.Button;
 import com.funnyb.cwc.combat.behavior.WeaponBehavior;
 import com.funnyb.cwc.crafting.PartNode;
@@ -385,8 +386,9 @@ public class CwcClientEvents {
      * 发 {@link CwcOffhandAttackPacket}（带目标实体 id）给服务端权威执行。空挥（无实体目标）发 -1，
      * 服务端仅进冷却 + 广播挥动。
      * <p>
-     * 未接管（不是本模组武器 / 这一手没声明行为 / 主手武器占用右键 / 冷却中）时放行原版流程——
-     * 原版 useItem 也会因 isOnCooldown 直接 pass。
+     * 未接管（不是本模组武器 / 这一手没声明行为 / 冷却中）时放行原版流程——原版 useItem 也会因
+     * isOnCooldown 直接 pass。**例外是"另一只手占用右键"**：那不是"放行原版"而是**整轮作废**
+     * （原版也不执行），见下面 {@code otherHandBlocks} 那一段。
      * <p>
      * 原版按住右键时本事件**每 ~5 tick 就会再来一次**：{@code handleKeybinds} 里
      * {@code keyUse.isDown() && rightClickDelay == 0 && !isUsingItem()} 会每 tick 调 {@code startUseItem}，
@@ -406,6 +408,16 @@ public class CwcClientEvents {
         sawOffhandUse = true;
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
+        // 另一只手声明了 disableOffHand（双手武器占用双手）→ 这一轮**整轮作废，原版也一并挡掉**。
+        // 装配后的双手武器是靠"主手消费 → 原版 startUseItem 的 for 循环直接 return，副手那一轮根本
+        // 够不到"顺带挡住的；空手柄没有可消费的主手动作（mainHandUse 由**刃**声明、手柄的刀身槽放行，
+        // 空手柄这一字段没有胜者），原版循环会真的走到这一轮，于是"拿着空的双双手柄仍能用副手放方块"。
+        // 补上这一句，两者的表现才一致（2026-09-27 作者定）。
+        if (BehaviorResolver.otherHandBlocks(mc.player, InteractionHand.OFF_HAND)) {
+            event.setCanceled(true);
+            event.setSwingHand(false);   // 什么都没发生，不要挥动
+            return;
+        }
         if (!tryBehaviorUse(mc, mc.player, InteractionHand.OFF_HAND)) return;   // 未接管 → 放行原版
 
         event.setCanceled(true);

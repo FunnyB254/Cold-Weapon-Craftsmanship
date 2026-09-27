@@ -67,7 +67,7 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 | `mainHandUse` | 否 | **这件物品在主手时**右键做什么，见「行为与 HUD」 |
 | `offHandUse` | 否 | **这件物品在副手时**右键做什么 |
 | `attack` | 否 | **这件物品的攻击方式**（普攻风格与几何）。在哪只手都读同一份 |
-| `disableOffHand` | 否 | 是否屏蔽**另一只手**的动作（双手武器占用右键那条规则）。默认 false |
+| `disableOffHand` | 否 | 是否屏蔽**另一只手**的动作（双手武器占用双手那条规则）。**含原版动作**：副手放方块 / 用桶 / 喂食一并挡掉，不只是本模组的副手出刀。默认 false |
 
 **类型只有一种数据形状**，所以没有 `parser` 分派：`data` 是自由键值对，加语义键直接加即可，不需要新 codec。
 
