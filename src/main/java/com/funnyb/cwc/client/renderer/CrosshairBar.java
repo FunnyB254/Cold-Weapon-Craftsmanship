@@ -152,7 +152,14 @@ public final class CrosshairBar {
     private static void blit(GuiGraphics gui, ResourceLocation sprite, int x, int y,
                              int width, int height, int shown, boolean flip) {
         if (!flip) {
-            gui.blitSprite(sprite, x, y, shown, height);
+            // ⚠ 必须用**九参**那个重载。`GuiGraphics` 两个重载语义不同：
+            // 五参 `(sprite, x, y, width, height)` 把**整张** sprite 的 UV 铺满目标矩形，也就是
+            // **拉伸**——`shown` 不足 16 时整条被压进 `shown` 像素里（"像在拉伸"就是这么来的）；
+            // 九参 `(sprite, tw, th, u, v, x, y, uw, vh)` 取的是 `[u, u+uw)` 那一段 UV，**裁切**。
+            // 原版那条进度条用的就是九参（`Gui.java:475`），所以这里必须跟着。
+            // 夹取是防御：这一支今天算不出 17（调用方只在 `readiness < 1.0` 时算 `shown`），
+            // 但 UV 一旦超过 1 会采到图集里隔壁的 sprite；镜像那支的 `Math.max(0, width - shown)` 同理。
+            gui.blitSprite(sprite, width, height, 0, 0, x, y, Math.min(shown, width), height);
             return;
         }
         // 逐像素倒序采样：UV 同时按 u→width-1-u、v→height-1-v 映射，几何与绕序都不变。
