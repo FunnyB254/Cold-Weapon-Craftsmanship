@@ -127,10 +127,13 @@ public interface WeaponBehavior {
     }
 
     /**
-     * 攻击范围内是否存在**任意**可攻击目标——指示器"该不该亮"的判据。
+     * 准星处没有实体时，是否**还有别的**该让指示器点亮的目标。
      * <p>
-     * 默认 = 准星目标可命中（单体：不打准星就没有目标）；横扫覆盖成"准星正对的东西**或**范围内有的东西"
-     * ——两条都要算，因为服务端结算也是这两条路（只算范围那条会让"准星对着自己的宠物"打得到却不亮）。
+     * ⚠ <b>指示器在准星处有实体时会直接点亮，根本问不到本方法</b>（原版口径，见
+     * {@code CwcCombat#hasAnyAttackableTarget} 的说明）。所以本方法负责的只是"准星没指着东西"那一半：
+     * 默认 = 准星目标可命中（单体：不打准星就没有目标，于是恒为 false）；横扫覆盖成**范围扫描**
+     * （{@code hasSweepTarget}）——CWC 的横扫判定盒挂在玩家自己身上、空挥也结算，
+     * 站在怪堆里不看它们也该提示，这是本模组相对原版**多出来**的那一条提示。
      */
     default boolean hasAnyTarget(Player player, ItemStack weapon, InteractionHand hand, Entity crosshairTarget) {
         return CwcCombat.canHitTarget(player, crosshairTarget, weapon, hand);

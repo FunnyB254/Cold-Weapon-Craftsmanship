@@ -805,13 +805,35 @@ public final class CwcCombat {
     }
 
     /**
-     * 当前武器（手）是否存在**任意可攻击的目标**——攻击指示器"该不该亮"的统一判定，问该物品
-     * {@code attack} 字段胜出的行为（{@link WeaponBehavior#hasAnyTarget}）：
-     * 横扫 = 准星正对的东西或攻击范围内有可攻击实体（{@link #hasSweepTarget}）；单体 = 准星目标可命中。
+     * 当前武器（手）是否有**会让指示器点亮的目标**——主手与副手两条攻击指示器"该不该亮"的判定。
+     * <p>
+     * 分两层，**顺序就是口径**：
+     * <ol>
+     *   <li><b>准星处有实体 → 亮</b>（作者 2026-09-27 定）。这是**原版口径**：原版攻击指示器
+     *       （{@code Gui.java:461-477}）只判"准星拾取到活体 + 蓄力满"，**不复判** reach（拾取那一步已按
+     *       reach 卡过）、**不看**友军、**不看**几何——能不能打到是结算的事。所以本模组也不再自己发明
+     *       精确预测：预测得越细，就越容易和服务端结算对不上（这个坑本模组踩过好几轮）。
+     *       <p>
+     *       "准星处"**含向上骑乘链的补点**：骑在我头上的人不在 {@code mc.hitResult} 里（原版拾取按根载具
+     *       过滤了整条骑乘链），但从玩家视角他就在准星上，出刀也确实打得到
+     *       （见 {@link #pickUpperRideChain}）。早先这一条漏了，表现为"头上的人打得到、指示器却不亮"。</li>
+     *   <li>准星处没实体时，才问该物品 {@code attack} 字段胜出的行为
+     *       （{@link WeaponBehavior#hasAnyTarget}）——今天实际只剩**横扫的"范围里有东西"**那条
+     *       （{@link #hasSweepTarget}）：CWC 的横扫判定盒挂在玩家自己身上、空挥也结算，所以站在怪堆里
+     *       不看它们也该提示。</li>
+     * </ol>
+     * <b>有意接受的"亮却打不到"</b>：准星指着**队友**且队伍关了友伤时会亮，但 {@link #canHarmAlly}
+     * 仍会拒掉伤害。**原版正是如此**（原版不看队伍，由 {@code Player.hurt} 的 {@code canHarmPlayer} 拒），
+     * 属于"回到原版口径"的一部分。
      *
-     * @param crosshairTarget 客户端准星命中的实体（mc.hitResult），单体判定用；横扫忽略
+     * @param crosshairTarget 客户端准星命中的实体（{@code mc.hitResult}），没有则 null
      */
     public static boolean hasAnyAttackableTarget(Player player, ItemStack weapon, InteractionHand hand, Entity crosshairTarget) {
+        // ① 准星处有实体 → 亮（含向上骑乘链的补点，见方法注释第 1 条）
+        if (crosshairTarget != null) return true;
+        if (pickUpperRideChain(player, resolveReach(player, hand, weapon)) != null) return true;
+
+        // ② 准星处没实体：交给行为（今天实际只剩横扫的范围扫描）
         WeaponBehavior attack = BehaviorResolver.behaviorFor(weapon, BehaviorField.ATTACK);
         return attack != null && attack.hasAnyTarget(player, weapon, hand, crosshairTarget);
     }
