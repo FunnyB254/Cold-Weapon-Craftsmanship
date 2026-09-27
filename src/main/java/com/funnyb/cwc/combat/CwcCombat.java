@@ -21,6 +21,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.OwnableEntity;
+import net.minecraft.world.entity.animal.horse.AbstractHorse;
 import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
@@ -499,7 +500,9 @@ public final class CwcCombat {
      * 规则（作者定）：
      * <ul>
      *   <li>横扫**不打自己的**宠物 / 坐骑（认主的 {@link OwnableEntity}，owner 就是我）；</li>
-     *   <li>横扫**照打别人的**宠物——**包括队友的**，与原版一致（原版打宠物从不看队伍）；</li>
+     *   <li>横扫**不打队友的坐骑**（作者 2026-09-27 补的一条：队友可以把马停在战场边上，
+     *       顺手扫死它比误伤队友更难受）；判据见 {@link CwcOwnership#ownerTeamMatches}；</li>
+     *   <li>横扫**照打别人的宠物**——**包括队友的**，与原版一致（原版打宠物从不看队伍）；</li>
      *   <li>**队友**：副目标**一律不卷进来**（友伤开着也一样）。队友只能靠**准星正对**打中——
      *       那条走主目标路径，由 {@link #canHarmAlly} 按队伍的 {@code friendlyFire} 裁定；</li>
      *   <li>准星**正对**的宠物**照打**：同上，主目标路径。所以本方法**不得**用到主目标判定上。</li>
@@ -552,9 +555,12 @@ public final class CwcCombat {
 
     private static boolean isSweepFriendly(Player player, Entity e) {
         if (player.isAlliedTo(e)) return true;   // 队友：副目标**一律**不卷进来（友伤开着也一样）
+        if (!(e instanceof OwnableEntity own)) return false;
         // 我的宠物 / 坐骑——经 CwcOwnership 取主人：马的 owner 原版不同步到客户端，
         // 直接 own.getOwner() 在客户端恒为 null（见 CwcAttachments）
-        return e instanceof OwnableEntity own && player.getUUID().equals(CwcOwnership.ownerOf(own));
+        if (player.getUUID().equals(CwcOwnership.ownerOf(own))) return true;
+        // 队友的**坐骑**同样不卷进来（作者 2026-09-27 定）。队友的**宠物**照旧照打——与原版一致。
+        return own instanceof AbstractHorse horse && CwcOwnership.ownerTeamMatches(player, horse);
     }
 
     // ==================== 骑乘链保护 ====================
