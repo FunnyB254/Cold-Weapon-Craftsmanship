@@ -166,8 +166,15 @@ public interface WeaponBehavior {
      * <b>默认实现 = 主手攻击与副手出刀两条今天要的读法，所以内置行为一个都不用覆盖</b>：
      * <ul>
      *   <li>进度：主手读**玩家攻速条**，副手读**它自己的独立冷却**（两把刀各走各的冷却，这是刻意的）；</li>
-     *   <li>高亮：这只手能不能打到东西（与出手时同一套几何，见 {@link #hasAnyTarget}）。</li>
+     *   <li>高亮：这只手能不能打到东西（{@link CwcCombat#hasAnyAttackableTarget}）。主手那条再 AND
+     *       一条原版条件，见下。</li>
      * </ul>
+     * <p>
+     * <b>主手那条还要多一条原版条件</b>：原版画满格图标除"准星拾取到活体 + 蓄力满"外，还要求这件物品的
+     * **攻速延迟 &gt; 5**（{@code Gui.java:465}，见 {@link CwcCombat#attackDelayAllowsFullIcon}）。
+     * 它是"**这件物品**"的条件而不是"目标"的条件，所以不放进
+     * {@link CwcCombat#hasAnyAttackableTarget}（那一个主副手共用），只 AND 在主手这一支上。
+     * 副手那条**没有原版对应物**，不受它约束。
      * <p>
      * <b>返回 {@code empty} = 这只手这个字段不画。</b>保持型动作（格挡这类）没有"进度"可言，
      * 将来要给它做提示时覆盖本方法；用 {@code Optional} 而不是"进度 0"是因为
@@ -175,11 +182,14 @@ public interface WeaponBehavior {
      */
     default Optional<HudReadout> hudReadout(Player player, InteractionHand hand, ItemStack stack,
                                             Entity crosshairTarget) {
-        float progress = hand == InteractionHand.MAIN_HAND
-                ? player.getAttackStrengthScale(0.0F)
-                : CwcCombat.offhandReadiness(player);
-        return Optional.of(new HudReadout(progress,
-                CwcCombat.hasAnyAttackableTarget(player, stack, hand, crosshairTarget)));
+        boolean hasTarget = CwcCombat.hasAnyAttackableTarget(player, stack, hand, crosshairTarget);
+        if (hand == InteractionHand.MAIN_HAND) {
+            // 主手那条逐条对齐原版：目标条件在 hasAnyAttackableTarget 里，"攻速延迟 > 5"在这儿
+            // （它只影响**满格图标**，不影响进度条——原版那根条只由 f < 1.0 决定；绘制那侧本来就是这个结构）
+            return Optional.of(new HudReadout(player.getAttackStrengthScale(0.0F),
+                    hasTarget && CwcCombat.attackDelayAllowsFullIcon(player)));
+        }
+        return Optional.of(new HudReadout(CwcCombat.offhandReadiness(player), hasTarget));
     }
 
     /** 一次 HUD 读数：进度 + 高亮。见 {@link #hudReadout} */

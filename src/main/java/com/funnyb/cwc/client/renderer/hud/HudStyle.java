@@ -29,7 +29,9 @@ public interface HudStyle {
      *
      * @param progress  进度 0~1（1 = 可以出手了）。**0 不等于"不显示"**——那是一条空进度条；
      *                  要整个不画，由行为返回空读数（见 {@code WeaponBehavior#hudReadout}）
-     * @param highlight 高亮：此刻打不打得到
+     * @param highlight 高亮：此刻**该不该显示满格**——打得到，**且**（只对主手那条）这件物品够格
+     *                  （原版还有一条"攻速延迟 &gt; 5"，见 {@code CwcCombat#attackDelayAllowsFullIcon}）。
+     *                  {@code progress} 未满时本参数**不被读**（那支画的是进度条）
      * @param mirrored  true = 画在准星**上方**（副手那条）；false = 准星下方（主手那条）
      */
     void render(GuiGraphics gui, float progress, boolean highlight, boolean mirrored);

@@ -207,6 +207,29 @@ public final class CwcCombat {
     /** 主手**自动攻击**允许出手的最低冷却进度——必须满冷却 */
     public static final float MAIN_AUTO_MIN_SCALE = 1.0f;
 
+    /**
+     * 原版判满格图标时的**攻速延迟门槛**——{@code Gui.java:465} 的 {@code > 5.0F}，逐字照抄。
+     * <p>
+     * 延迟 = {@code 20 / 攻速}，玩家基础攻速 4.0 算出来**恰好 5.0**，而原版判的是**严格大于**，
+     * 所以**空手永远不满足、原版对空手从不画满格图标**。本模组的**空手柄**（速度修正为 0 → 攻速 4.0
+     * → 延迟 5.0）同理——这一档是对齐原版的直接结果（作者 2026-09-27 定），不是漏判。
+     * 装配好的武器零件速度修正都是负的（攻速 &lt; 4），延迟必然 &gt; 5，不受影响。
+     */
+    private static final float VANILLA_FULL_ICON_MIN_DELAY = 5.0F;
+
+    /**
+     * 这件物品的攻速延迟够不够原版画满格图标（{@code Gui.java:465}）——**只对主手那条有意义**。
+     * <p>
+     * 它约束的是**满格图标**，<b>不是</b>进度条：原版那根条只由 {@code f < 1.0} 决定，
+     * 与攻速快慢无关。所以调用方要把它 AND 在"高亮"上，而不是当成"这条指示器画不画"的闸
+     * （见 {@link com.funnyb.cwc.combat.behavior.WeaponBehavior#hudReadout}）。
+     * <p>
+     * 副手那条没有原版对应物（它读的是自己的独立物品冷却），不受这一条约束。
+     */
+    public static boolean attackDelayAllowsFullIcon(Player player) {
+        return player.getCurrentItemAttackStrengthDelay() > VANILLA_FULL_ICON_MIN_DELAY;
+    }
+
     /** 冷却校验——按手，主手按 {@link #MAIN_AUTO_MIN_SCALE} 取满冷却 */
     public static boolean isCooldownReady(Player player, InteractionHand hand, ItemStack weapon) {
         return isCooldownReady(player, hand, weapon, MAIN_AUTO_MIN_SCALE);
@@ -830,10 +853,21 @@ public final class CwcCombat {
      * <p>
      * 分两层，**顺序就是口径**：
      * <ol>
-     *   <li><b>准星处有实体 → 亮</b>（作者 2026-09-27 定）。这是**原版口径**：原版攻击指示器
-     *       （{@code Gui.java:461-477}）只判"准星拾取到活体 + 蓄力满"，**不复判** reach（拾取那一步已按
-     *       reach 卡过）、**不看**友军、**不看**几何——能不能打到是结算的事。所以本模组也不再自己发明
-     *       精确预测：预测得越细，就越容易和服务端结算对不上（这个坑本模组踩过好几轮）。
+     *   <li><b>准星处是<u>活着的活体</u> → 亮</b>（作者 2026-09-27 定，2026-09-27 收紧到原版口径）。
+     *       原版攻击指示器（{@code Gui.java:461-477}）的四个条件里，与"目标"有关的就是
+     *       {@code instanceof LivingEntity} 与 {@code isAlive()} 这两条——**不复判** reach（拾取那一步
+     *       已按 reach 卡过）、**不看**友军、**不看**几何，能不能打到是结算的事。所以本模组也不再自己
+     *       发明精确预测：预测得越细，就越容易和服务端结算对不上（这个坑本模组踩过好几轮）。
+     *       <p>
+     *       原来这里写的是"有**任何** {@code Entity} 就亮"，与本方法自己的注释（"准星拾取到活体"）
+     *       都对不上，2026-09-27 按作者"和原版一致"的要求收紧。**代价**：准星指着船 / 矿车 / 画框 /
+     *       末影水晶这类**非活体**实体时不再亮——尽管本模组的攻击确实打得到船与矿车
+     *       （{@code canHitTarget} 只要求 {@code isAttackable()}）。这是"原版一致"与"打得到就亮"
+     *       两套口径的缝，作者选了前者。
+     *       <p>
+     *       原版另外两个条件不在本方法：{@code 蓄力满}由绘制那一支判（{@code readiness >= 1.0}），
+     *       {@code 攻速延迟 > 5} 是"这件物品"的条件、只对主手那条有意义
+     *       （见 {@link #attackDelayAllowsFullIcon}）。
      *       <p>
      *       "准星处"**含向上骑乘链的补点**：骑在我头上的人不在 {@code mc.hitResult} 里（原版拾取按根载具
      *       过滤了整条骑乘链），但从玩家视角他就在准星上，出刀也确实打得到
@@ -846,12 +880,15 @@ public final class CwcCombat {
      * <b>有意接受的"亮却打不到"</b>：准星指着**队友**且队伍关了友伤时会亮，但 {@link #canHarmAlly}
      * 仍会拒掉伤害。**原版正是如此**（原版不看队伍，由 {@code Player.hurt} 的 {@code canHarmPlayer} 拒），
      * 属于"回到原版口径"的一部分。
+     * <p>
+     * 第 2 条（横扫范围扫描）**比原版宽**：它把船 / 矿车也算候选（见 {@link #isSweepCandidate}），
+     * 所以横扫型武器站在船边时照样会亮——第 1 条收紧成活体之后，这一条的宽就只剩它自己了。
      *
      * @param crosshairTarget 客户端准星命中的实体（{@code mc.hitResult}），没有则 null
      */
     public static boolean hasAnyAttackableTarget(Player player, ItemStack weapon, InteractionHand hand, Entity crosshairTarget) {
-        // ① 准星处有实体 → 亮（含向上骑乘链的补点，见方法注释第 1 条）
-        if (crosshairTarget != null) return true;
+        // ① 准星处是活着的活体 → 亮（含向上骑乘链的补点，见方法注释第 1 条）
+        if (crosshairTarget instanceof LivingEntity living && living.isAlive()) return true;
         if (pickUpperRideChain(player, resolveReach(player, hand, weapon)) != null) return true;
 
         // ② 准星处没实体：交给行为（今天实际只剩横扫的范围扫描）
