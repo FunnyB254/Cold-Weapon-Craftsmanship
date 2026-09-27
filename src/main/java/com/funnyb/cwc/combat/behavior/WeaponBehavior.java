@@ -129,7 +129,8 @@ public interface WeaponBehavior {
     /**
      * 攻击范围内是否存在**任意**可攻击目标——指示器"该不该亮"的判据。
      * <p>
-     * 默认 = 准星目标可命中（单体：不打准星就没有目标）；横扫覆盖成"不看准星，范围内有东西就算"。
+     * 默认 = 准星目标可命中（单体：不打准星就没有目标）；横扫覆盖成"准星正对的东西**或**范围内有的东西"
+     * ——两条都要算，因为服务端结算也是这两条路（只算范围那条会让"准星对着自己的宠物"打得到却不亮）。
      */
     default boolean hasAnyTarget(Player player, ItemStack weapon, InteractionHand hand, Entity crosshairTarget) {
         return CwcCombat.canHitTarget(player, crosshairTarget, weapon, hand);

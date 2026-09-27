@@ -760,12 +760,28 @@ public final class CwcCombat {
     }
 
     /**
-     * 横扫攻击范围内是否存在可攻击目标——客户端攻击指示器用（**只要有能打到的目标就提示，不要求准星对准**）。
-     * 与服务端 {@link #applySweep} 副目标同规则：眼位 inflate(reach) 内的 {@link #isSweepCandidate 候选实体}
-     * （活体 / 船 / 矿车），双区域或准星射线命中 + 视线 + {@link #isSweepFriendly 非队友且不是自己的宠物}
-     * + {@link #isRideChainDown 不在我向下的骑乘链上} + 可攻击。
+     * 横扫是否存在**会挨打**的目标——客户端攻击指示器用（不要求准星对准）。
+     * <p>
+     * 必须覆盖 {@link #applySweep} 的**两条**路，否则会出现"打得到却不亮"：
+     * <ol>
+     *   <li><b>准星正对的目标</b>——它走的是**主目标**那条路（{@link #canHitTarget}），
+     *       那一侧**不查** {@link #isSweepFriendly}：准星明确指着的东西就是玩家想打的东西，
+     *       包括自己的宠物（原版行为，见 {@link #isSweepFriendly} 的说明）。
+     *       早先这一条漏了，表现为"准星对着自己的狼，指示器不亮、但一刀下去照打"；</li>
+     *   <li><b>范围扫描</b>——{@link #applySweep} 副目标同规则：眼位 inflate(reach) 内的
+     *       {@link #isSweepCandidate 候选实体}（活体 / 船 / 矿车），双区域或准星射线命中 + 视线
+     *       + {@link #isSweepFriendly 非队友且不是自己的宠物}
+     *       + {@link #isRideChainDown 不在我向下的骑乘链上} + 可攻击。</li>
+     * </ol>
+     *
+     * @param crosshairTarget 准星命中的实体（客户端 {@code mc.hitResult}），没有则 null
      */
-    public static boolean hasSweepTarget(Player player, ItemStack weapon, InteractionHand hand) {
+    public static boolean hasSweepTarget(Player player, ItemStack weapon, InteractionHand hand,
+                                         Entity crosshairTarget) {
+        // ① 准星正对──主目标那条路（不查 isSweepFriendly，所以自己的宠物也算）
+        if (canHitTarget(player, crosshairTarget, weapon, hand)) return true;
+
+        // ② 范围扫描──副目标那条路
         Level level = player.level();
         double reach = resolveReach(player, hand, weapon);
         Vec3 eye = player.getEyePosition();
@@ -785,7 +801,7 @@ public final class CwcCombat {
     /**
      * 当前武器（手）是否存在**任意可攻击的目标**——攻击指示器"该不该亮"的统一判定，问该物品
      * {@code attack} 字段胜出的行为（{@link WeaponBehavior#hasAnyTarget}）：
-     * 横扫 = 攻击范围内存在可攻击实体（不要求准星对准）；单体 = 准星目标可命中。
+     * 横扫 = 准星正对的东西或攻击范围内有可攻击实体（{@link #hasSweepTarget}）；单体 = 准星目标可命中。
      *
      * @param crosshairTarget 客户端准星命中的实体（mc.hitResult），单体判定用；横扫忽略
      */
