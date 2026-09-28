@@ -1,8 +1,8 @@
 package com.funnyb.cwc.client.renderer;
 
+import com.funnyb.cwc.client.sprite.SpriteTextures;
 import com.funnyb.cwc.crafting.AssemblyTree;
 import com.funnyb.cwc.crafting.PartNode;
-import com.funnyb.cwc.crafting.PartRegistry;
 import com.funnyb.cwc.crafting.PartTypeDef;
 
 import com.mojang.blaze3d.platform.NativeImage;
@@ -21,7 +21,6 @@ import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderDispatcher;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.inventory.InventoryMenu;
 import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
 
@@ -339,6 +338,8 @@ public class AssembledWeaponRenderer extends BlockEntityWithoutLevelRenderer {
             releaseComposite(comp);
         }
         COMPOSITES.clear();
+        // 源图也要跟着清：合成体是逐像素复制出来的、不持有源图，所以先释放合成体再释放源图没有顺序问题
+        SpriteTextures.invalidate();
     }
 
     /** 渲染一张合成贴图：正面/背面/边缘面（深度写、非排序） */
@@ -355,12 +356,15 @@ public class AssembledWeaponRenderer extends BlockEntityWithoutLevelRenderer {
         }
     }
 
-    /** 取零件 id 对应的合成源贴图（atlas 中的原始图片，非裁剪区域） */
+    /**
+     * 取零件 id 对应的合成源贴图。
+     * <p>
+     * 改造前这里是从原版方块图集取一张 {@code item/cwc/…png} 的原图；现在贴图不再有 PNG 文件，
+     * 改由「精灵图 + 调色板」两份 JSON 现画（见 {@link SpriteTextures}）。
+     * 返回的仍是只读的 {@code NativeImage}，下游的合成、网格缓存、动态纹理一概不变。
+     */
     private static NativeImage partSourceImage(String id) {
-        return Minecraft.getInstance()
-                .getTextureAtlas(InventoryMenu.BLOCK_ATLAS)
-                .apply(textureOf(id))
-                .contents().getOriginalImage();
+        return SpriteTextures.sourceOf(id);
     }
 
     /** 构建贴图不透明掩码（alpha > 0；NativeImage ABGR 格式，alpha 在最高字节） */
@@ -394,50 +398,6 @@ public class AssembledWeaponRenderer extends BlockEntityWithoutLevelRenderer {
                 .setLight(light)
                 .setOverlay(overlay)
                 .setNormal(normal.x, normal.y, normal.z);
-    }
-
-    /**
-     * 由零件 id 推导贴图路径——注册表 id 的**路径**直接就是 {@code item/cwc/} 下的子路径。
-     * <p>
-     * 例：{@code coldweaponcraftsmanship:standard_blade/iron}
-     * → {@code coldweaponcraftsmanship:item/cwc/standard_blade/iron}。
-     * <p>
-     * <b>命名空间跟随 id 的命名空间</b>——第三方扩展包的零件贴图因而走它自己的资源命名空间
-     * （{@code 他们的命名空间:item/cwc/…}），与本模组互不干扰。现有零件的 id 命名空间就是本模组，
-     * 所以它们的贴图路径一个字都没变、贴图文件也不需要搬家。
-     * <p>
-     * 类型 id 没有自己的贴图，取该类型下 id 最小的零件的贴图作代表。
-     * 非法 id（旧存档遗留的点号格式）返回缺失贴图，不抛异常。
-     */
-    private static ResourceLocation textureOf(String id) {
-        ResourceLocation key = parseId(id);
-        if (key == null) return MISSING_TEXTURE;
-
-        String path = key.getPath();
-        if (PartRegistry.getTypeDef(key) != null) {
-            // 是类型 id：取该类型下 id 最小的零件作代表（零件没有 id 字段，id 是注册表键）
-            path = PartRegistry.partMap().entrySet().stream()
-                    .filter(e -> key.equals(e.getValue().type()))
-                    .map(Map.Entry::getKey)
-                    .min(Comparator.comparing(ResourceLocation::toString))
-                    .map(ResourceLocation::getPath)
-                    .orElse(null);
-            if (path == null) return MISSING_TEXTURE;
-        }
-        return ResourceLocation.fromNamespaceAndPath(key.getNamespace(), "item/cwc/" + path);
-    }
-
-    /** 缺失贴图——原版约定 */
-    private static final ResourceLocation MISSING_TEXTURE = ResourceLocation.withDefaultNamespace("missingno");
-
-    /** 字符串 → ResourceLocation，非法返回 null（旧存档的点号 id 会走到这里） */
-    private static ResourceLocation parseId(String id) {
-        if (id == null) return null;
-        try {
-            return ResourceLocation.parse(id);
-        } catch (Exception e) {
-            return null;
-        }
     }
 
     /** 单个渲染项：零件 id + 锚点偏移 + 图层优先级 */

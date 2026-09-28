@@ -286,16 +286,78 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 
 ## 贴图
 
-零件贴图路径 = **id 的路径**拼到 `item/cwc/` 下：
+零件贴图**不是 PNG**，而是「**精灵图（形状）+ 调色板（配色）**」两份 JSON，运行时逐像素现画
+（见 `client/sprite/SpriteTextures`）。同一类型的七个材质形状完全相同、只差几个颜色，
+所以形状只画一份、每个材质只写一张配色表。
 
-| id | 贴图 |
+两份文件的路径都由 **id 的路径**推导，**无需在零件 JSON 里声明任何字段**：
+
+| 文件 | 路径 | 数量 |
+|---|---|---|
+| 调色板 | `assets/<命名空间>/cwc/palette/<类型>/<材质>.json` | 每（类型 × 材质）一份 |
+| 精灵图 | `assets/<命名空间>/cwc/sprite/<类型>/<组>.json` | 每（类型 × 组）一份 |
+
+| id | 调色板 |
 |---|---|
-| `coldweaponcraftsmanship:standard_blade/iron` | `coldweaponcraftsmanship:item/cwc/standard_blade/iron` |
-| `yourmod:standard_blade/mythril` | `yourmod:item/cwc/standard_blade/mythril` |
+| `coldweaponcraftsmanship:standard_blade/iron` | `coldweaponcraftsmanship:cwc/palette/standard_blade/iron.json` |
+| `yourmod:standard_blade/mythril` | `yourmod:cwc/palette/standard_blade/mythril.json` |
 
-**命名空间跟随 id 的命名空间**，所以扩展包的贴图走自己的资源命名空间，与本模组互不干扰。
-类型 id 没有自己的贴图——图标取该类型下 id 最小的零件的贴图作代表。
-推导不出贴图时显示原版缺失贴图，不会崩。
+用哪条精灵图**只写在调色板的 `sprite` 字段里**（精灵图自己不知道有谁在用它），
+所以"哪些材质共用一条形状"改数据即可，不必改代码。本模组现在分三组：
+
+| 组 | 材质 | 理由 |
+|---|---|---|
+| `non_metal` | wood、stone | 木石画法自成一套 |
+| `metal` | copper、gold、iron、diamond | 这四种的明暗分区**完全一致**，能共用一条 |
+| `alloy` | netherite | 下界合金的明暗比其余材质细（原版 `netherite_sword` 本身就与 `iron_sword` 画法不同），共用会把别的材质撑出重复项 |
+
+分组的唯一硬要求是**同组各材质的"同色分区"必须一致**——即"哪两个像素是同一个颜色"这件事要完全相同。
+不一致时只能退到最细共同分区（只要有一个材质把那两个像素画成异色就得拆槽），
+于是把两者画成同色的材质会在调色板里出现重复色值。见 `tmp/gen_part_sprites.py` 的说明。
+
+**调色板** `cwc/palette/<类型>/<材质>.json`：
+
+```json
+{
+  "sprite": "coldweaponcraftsmanship:standard_blade/metal",
+  "colors": [
+    "#00000000",
+    "#5F2C1CFF",
+    "#803921FF"
+  ]
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `sprite` | 精灵图引用 `<命名空间>:<类型>/<组>`，对应 `cwc/sprite/<类型>/<组>.json` |
+| `colors` | RGBA 十六进制串。接受 `#RRGGBBAA` / `RRGGBBAA` / `#RRGGBB`（六位 = 不透明）。**第 0 项必须是透明项**（`alpha = 00`）——精灵图用下标 0 表示背景，第 0 项若不透明会把背景整片涂上色 |
+
+**精灵图** `cwc/sprite/<类型>/<组>.json`：
+
+```json
+{
+  "pixels": [
+    [0,0,0,1,1,0],
+    [0,1,2,2,1,0]
+  ]
+}
+```
+
+`pixels[y][x]` 是**调色板下标**，0 = 透明。尺寸由数组自身决定（宽 = 列数、高 = 行数），
+可以是 16×16 也可以是 32×32。**每行长度必须一致**——不一致直接报错，该零件回落缺失贴图。
+
+其余约定：
+
+- **命名空间跟随 id 的命名空间**，扩展包的贴图走自己的资源命名空间，与本模组互不干扰。
+- 类型 id 没有自己的贴图——图标取该类型下 id 最小的零件的贴图作代表。
+- 两份 JSON 任一缺失、格式错、下标越界、颜色串非法，都**记一条 ERROR 并回落原版缺失贴图，不崩游戏**。
+- 每个零件画好的图**各留一份缓存**；F3+T 时连同武器合成缓存一起清空，下次用到时重新画。
+- 同一条精灵图被多个材质共用时，**细分到各材质的最小共同分区**：某个材质把两个像素画成同色、
+  另一个材质把它们画成异色时，这两像素必须拆成两个槽，于是前者的调色板里会出现重复色值。
+  这是无损表达的必然代价（见 `tmp/gen_part_sprites.py` 的说明）。
+- 现有的 56 份调色板 + 24 条精灵图由 `tmp/gen_part_sprites.py` 从旧 PNG 机械生成，
+  脚本内置**往返自检**（画回来与原 PNG 逐像素比对）。
 
 ## 从加载到装配（代码侧流程）
 
@@ -327,7 +389,8 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 ## 扩展方式
 
 1. **给现有类型加材质**：放一份 `data/yourmod/cwc/part/<类型>/<材质>.json`，`type` 指向现有类型，
-   再放一张 `assets/yourmod/textures/item/cwc/<类型>/<材质>.png`。制造台会自动把它列为该类型的材质变体。
+   再放一份 `assets/yourmod/cwc/palette/<类型>/<材质>.json`（`sprite` 指向已有一条精灵图，
+   或自带一条 `assets/yourmod/cwc/sprite/<类型>/<组>.json`）。制造台会自动把它列为该类型的材质变体。
 2. **加自己的类型**：放一份 `data/yourmod/cwc/part_type/<名字>.json`。若想让本模组的手柄能装它，
    给它一个与现有零件同语义的 `data`（如 `"type": "attack", "mount": "tang"`），现有槽位约束就会接受它。
 3. **加自己的数据形状**：写一个 `MapCodec<? extends PartDef>`，用
