@@ -1,0 +1,29 @@
+All Rights Reserved
+
+Copyright (c) 2026 FunnyB254
+
+This license applies to the sprite and palette assets of Cold Weapon Craftsmanship,
+that is, the files under:
+
+  src/main/resources/assets/coldweaponcraftsmanship/cwc/sprite/
+  src/main/resources/assets/coldweaponcraftsmanship/cwc/palette/
+
+All rights are reserved by the copyright holder. No part of these assets may be
+reproduced, redistributed, reuploaded, transmitted, published, modified, adapted,
+or incorporated into any derivative work, in whole or in part, by any means,
+without the prior written permission of the copyright holder.
+
+Redistribution of these assets is expressly forbidden. This includes, but is not
+limited to, shipping them inside a mod, a resource pack, a data pack, a modpack,
+or any other distribution, whether modified or unmodified.
+
+These assets are heavily derived from Minecraft's own art assets and are intended
+for use solely within a Minecraft mod development environment. Using any part of
+them outside of that context is not permitted.
+
+THE ASSETS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN
+AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE ASSETS OR THE USE OR OTHER DEALINGS IN THE ASSETS.

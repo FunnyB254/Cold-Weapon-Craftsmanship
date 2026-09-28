@@ -1,6 +1,6 @@
 modLoader="javafml"
 loaderVersion="[1,)"
-license="MIT"
+license="MIT (code) + All Rights Reserved (sprite & palette textures)"
 
 [[mods]]
 modId="coldweaponcraftsmanship"
