@@ -73,14 +73,16 @@ public class AssemblingMenu extends AbstractContainerMenu implements ContainerLi
                 "textures/gui/assembling.png",
                 layout.image_width, layout.image_height,
                 layout.tex_width, layout.tex_height,
-                layout.inventory_start_x, layout.inventory_start_y);
+                layout.inventory.x, layout.inventory.y);
         inventoryLayout.addSlots(this::addSlot, playerInventory);
 
         // 底座槽——接受任意 CWC 零件（含自身没有槽位的镡/配重）。
         // 允许刃当底座是为了拼出"刃+镡"这类子装配体，再整体插进手柄的 blade 槽；
         // WeaponStats 现在递归遍历整棵装配树，子装配体里的零件属性都会计入。
         // 底座自身无槽位时界面显示 0 行、没得装，不会出错。
-        this.addSlot(new Slot(baseContainer, 0, 51, 74) {
+        // 坐标从布局 JSON 读——必须对齐 assembling.png 上烘焙死的底座槽框
+        var baseSlot = Layouts.assemblingScreen().base_slot;
+        this.addSlot(new Slot(baseContainer, 0, baseSlot.x, baseSlot.y) {
             @Override
             public boolean mayPlace(ItemStack stack) {
                 return stack.has(CwcDataComponents.PART_IDENTITY.get());
@@ -340,9 +342,99 @@ public class AssemblingMenu extends AbstractContainerMenu implements ContainerLi
         }
     }
 
+    // ──── shift 快速移动（quickMoveStack）────
+    //
+    // 骨架照原版 ItemCombinerMenu（铁砧/锻造台共用的父类）取：它的槽位分块与我们几乎一一对应——
+    // 它 = [输入槽…, 产出槽, 主背包 27, 快捷栏 9]，我们 = [主背包 27, 快捷栏 9, 底座槽, 零件槽 3]，
+    // 所以下面那几个下标访问器就是它的 getResultSlot/getInventorySlotStart/getUseRowEnd 的翻版。
+
+    /** 零件槽区间起点（含）——按槽位总数推算，不写死下标 */
+    private int partSlotStart() {
+        return this.slots.size() - VISIBLE_ROWS;
+    }
+
+    /** 底座槽下标——紧挨在零件槽之前；它也正好是玩家物品栏的槽位数 */
+    private int baseSlotIndex() {
+        return partSlotStart() - 1;
+    }
+
+    /**
+     * shift + 左键的快速移动，两个方向都做，分支照原版 {@code ItemCombinerMenu#quickMoveStack}：
+     * <ol>
+     *   <li>点击来自<b>玩家物品栏</b>：先问"装配台有没有槽位愿意收它"（{@link #findSlotToQuickMoveTo}）——
+     *       有就放进去，没有就<b>什么都不做</b>，物品留在原处；</li>
+     *   <li>点击来自<b>装配台槽位</b>：一律移回物品栏，{@code reverseDirection = true}（从快捷栏那头开始找位置，
+     *       原版容器→物品栏的通行取法）。取出仍然照旧走容器的 change 监听：零件槽取出会回写
+     *       {@code ASSEMBLED_SLOTS}，与手动拖出去是同一条路。</li>
+     * </ol>
+     * 第 1 条**刻意不做**原版那套"退回物品栏内部换段（主背包 ↔ 快捷栏）"的兜底：这次点击的本意是
+     * "装进装配台"，物品却没进去、反而被挪到了另一个区段——纯属副作用。原版里那条兜底只出现在
+     * “容器什么都收”的菜单（箱子、熔炉…）；<b>槽位挑剔的菜单不换段</b>：{@code ItemCombinerMenu} 的这条分支
+     * 就是直接 {@code return EMPTY}（它的 {@code canMoveIntoInputSlots} 恒真，所以铁砧从不换段）。
+     * <p>
+     * 收尾三行也是原版逐字的样子：源槽空了就 {@code setByPlayer(EMPTY)} 真正清掉、否则 {@code setChanged()}；
+     * 数量没变说明什么也没搬动、返回 {@code EMPTY} 让调用方停手；最后 {@code onTake}。
+     * <p>
+     * 返回值照原版返回"搬动前那份的副本"，不必担心调用方（{@code doClick}）拿它继续循环：零件是
+     * {@code stacksTo(1)}，一次只可能搬走一件，搬完源槽就空了、循环条件里那个同类判断自然为假。
+     */
     @Override
     public ItemStack quickMoveStack(Player player, int index) {
-        return ItemStack.EMPTY;
+        ItemStack itemstack = ItemStack.EMPTY;
+        Slot slot = this.slots.get(index);
+        if (slot == null || !slot.hasItem()) return ItemStack.EMPTY;
+
+        ItemStack itemstack1 = slot.getItem();
+        itemstack = itemstack1.copy();
+
+        if (index < baseSlotIndex()) {
+            // 来自玩家物品栏——只放它一个坑：target 是 findSlotToQuickMoveTo 挑中的那格，别再往后找别的行
+            int target = findSlotToQuickMoveTo(itemstack1);
+            if (target < 0 || !this.moveItemStackTo(itemstack1, target, target + 1, false)) {
+                return ItemStack.EMPTY;
+            }
+        } else if (!this.moveItemStackTo(itemstack1, 0, baseSlotIndex(), true)) {
+            // 来自装配台槽位 → 移回物品栏
+            return ItemStack.EMPTY;
+        }
+
+        if (itemstack1.isEmpty()) {
+            slot.setByPlayer(ItemStack.EMPTY);
+        } else {
+            slot.setChanged();
+        }
+        if (itemstack1.getCount() == itemstack.getCount()) {
+            return ItemStack.EMPTY;
+        }
+        slot.onTake(player, itemstack1);
+        return itemstack;
+    }
+
+    /**
+     * 找一个愿意收下这个 ItemStack 的装配台槽位，返回其下标；没有则 -1。
+     * <p>
+     * 顺序照原版 {@code ItemCombinerMenu#getSlotToQuickMoveTo}——底座槽在前，然后按行——但**只认空槽**，
+     * 这一点逐字对的是 {@code SmithingMenu#findSlotToQuickMoveTo} 里那句
+     * {@code filter(i -> !this.getSlot(i).hasItem())}（它那儿是为了"模板必须落在 0 号槽"，
+     * 我们这儿是"不能把底座上的手柄换掉"）。
+     * <p>
+     * 底座槽尤其需要"空"这道闸：它的 {@code mayPlace} 接受**任意**零件（好让"刃+镡"这类子装配体也能当底座），
+     * 不挡的话每一次 shift 点击都会被它抢走，零件永远进不了零件槽。
+     * <p>
+     * 零件槽不必再筛：{@code mayPlace} 按当前滚动行取真实槽位约束，空位则交给 {@code moveItemStackTo}
+     * 自己保证（它只往空槽里放；零件是 {@code stacksTo(1)}，连"同类堆叠"那条分支都进不去）。
+     */
+    private int findSlotToQuickMoveTo(ItemStack stack) {
+        int base = baseSlotIndex();
+        // 底座槽只在空着时参与——"空"就是它自己容器的那一份，不必再查一遍槽里
+        if (baseContainer.getItem(0).isEmpty() && this.slots.get(base).mayPlace(stack)) {
+            return base;
+        }
+        for (int i = partSlotStart(); i < this.slots.size(); i++) {
+            Slot slot = this.slots.get(i);
+            if (slot.getItem().isEmpty() && slot.mayPlace(stack)) return i;
+        }
+        return -1;
     }
 
     /**

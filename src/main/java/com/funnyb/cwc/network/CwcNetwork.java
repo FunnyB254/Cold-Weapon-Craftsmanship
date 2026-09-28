@@ -44,14 +44,14 @@ public class CwcNetwork {
                     }
                 });
 
-        // 客户端→服务端：选中材料变体
+        // 客户端→服务端：选中零件类型
         registrar.playToServer(
                 SelectPartPacket.TYPE,
                 SelectPartPacket.STREAM_CODEC,
                 (payload, ctx) -> {
                     if (ctx.player() instanceof ServerPlayer player) {
                         if (player.containerMenu instanceof CraftingMenu menu) {
-                            menu.selectPart(payload.partId());
+                            menu.selectType(payload.typeId());
                         }
                     }
                 });

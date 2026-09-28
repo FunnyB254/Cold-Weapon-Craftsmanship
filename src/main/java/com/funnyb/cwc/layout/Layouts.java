@@ -65,7 +65,6 @@ public final class Layouts {
     private static CraftingMenu craftingMenu;
     private static CraftingScreen craftingScreen;
     private static IconGrid iconGrid;
-    private static InventoryLayout inventoryLayout;
     private static AssemblingScreenLayout assemblingScreen;
 
     private Layouts() {}
@@ -75,7 +74,6 @@ public final class Layouts {
         craftingMenu = null;
         craftingScreen = null;
         iconGrid = null;
-        inventoryLayout = null;
         assemblingScreen = null;
     }
 
@@ -99,12 +97,6 @@ public final class Layouts {
     public static IconGrid iconGrid() {
         if (iconGrid == null) iconGrid = load("gui/icon_grid.json", IconGrid.class);
         return iconGrid;
-    }
-
-    /** @return 物品栏快捷栏间隔 */
-    public static InventoryLayout inventoryLayout() {
-        if (inventoryLayout == null) inventoryLayout = load("gui/inventory_layout.json", InventoryLayout.class);
-        return inventoryLayout;
     }
 
     /** @return 装配界面布局 */
@@ -179,128 +171,166 @@ public final class Layouts {
     //  布局数据类（字段名 = JSON key，无参构造器提供默认值）
     // ═══════════════════════════════════════════
 
-    /** 单个槽位的坐标 */
+    /** 一个坐标——单个槽位的位置，或物品栏整块（背包 27 + 快捷栏 9）的左上角 */
     public static class SlotDef {
         public int x, y;
         public SlotDef() {}
     }
 
-    /** 零件网格在制造界面中的位置和尺寸 */
-    public static class PartGridDef {
+    /**
+     * 屏幕上一个矩形元素的位置与尺寸——按钮、图标网格、改名框都是这个形状。
+     * <p>
+     * 原先是 ButtonDef / PartGridDef / NameFieldDef 三个字段完全相同的类，
+     * 但"按钮 / 网格 / 输入框"在布局上本就是同一件事，合并成一个。
+     */
+    public static class RectDef {
         public int x_offset, y_offset, width, height;
-        public PartGridDef() {}
-    }
-
-    /** 按钮的位置和尺寸 */
-    public static class ButtonDef {
-        public int x_offset, y_offset, width, height;
-        public ButtonDef() {}
+        public RectDef() {}
     }
 
     // ──── 制造界面（容器侧）── 槽位坐标与物品栏布局 ────
 
     public static class CraftingMenu {
-        public int image_width = 256;
-        public int image_height = 180;
+        public int image_width = 176;
+        public int image_height = 192;
         public int tex_width = 256;
         public int tex_height = 256;
-        public int inventory_start_x = 48;
-        public int inventory_start_y = 102;
-        public SlotDef slot_input_0 = new SlotDef();
-        public SlotDef slot_input_1 = new SlotDef();
-        public SlotDef slot_input_2 = new SlotDef();
+        /**
+         * 物品栏整块（背包 3×9 + 快捷栏 9）的左上角——就这一个坐标定它的位置，
+         * 内部按原版几何自动排列（18px 间距、快捷栏再空出 hotbar_gap）。
+         */
+        public SlotDef inventory = new SlotDef();
+        /**
+         * 3×3 输入格**左上角那一格**的坐标——同 {@link #inventory} 的做法，只留一个坐标，
+         * 内部 18px 间距（3 列 3 行）是硬编码的：它必须与制造台贴图上烘焙死的九个槽框逐像素对齐，
+         * 不是可调项。贴图上九个框的原点是 x=7/25/43、y=18/36/54，槽位取值 = 框+1，所以首格是 (8,19)。
+         */
+        public SlotDef input_grid = new SlotDef();
+        /** 产出槽——贴图上那个 26×26 的大框，16×16 的物品居中，于是槽位取值 = (35+5, 74+5) */
         public SlotDef slot_output = new SlotDef();
 
         /** 构造器设定默认槽位坐标，无参以便 Gson 反序列化 */
         public CraftingMenu() {
-            slot_input_0.x = 104; slot_input_0.y = 18;
-            slot_input_1.x = 120; slot_input_1.y = 18;
-            slot_input_2.x = 136; slot_input_2.y = 18;
-            slot_output.x = 120;  slot_output.y = 61;
+            inventory.x = 8;     inventory.y = 110;
+            input_grid.x = 8;    input_grid.y = 19;
+            slot_output.x = 40;  slot_output.y = 79;
         }
     }
 
     // ──── 制造界面（屏幕侧）── 标题与零件列表 ────
 
     public static class CraftingScreen {
-        public int title_x = 129;
-        public int title_y = 9;
-        public int title_color = 0xFFFFFF;
-        public ButtonDef cycle_button = new ButtonDef();
-        public PartGridDef part_grid = new PartGridDef();
+        public int title_x = 8;
+        public int title_y = 6;
+        public int title_color = 0x404040;
+        public RectDef cycle_button = new RectDef();
+        /**
+         * 零件**类型**列表（右侧）的位置与尺寸——贴图上那块凹槽的内区：
+         * 102×80 = (6 列 × 16px + 6px 滚动条) × (5 行 × 16px)，正好铺满不越边框。
+         * 列数见 {@code icon_grid.json} 的 {@code cols}（同一条约束，改一处要改另一处）。
+         */
+        public RectDef part_grid = new RectDef();
+        /**
+         * 帮助按钮——两个界面共用这一份（装配界面也读本结构，同标题）。
+         * <p>
+         * 坐标为相对面板左上角的绝对值：当前 x_offset = 178 = 面板宽度 176 + 2，即贴在面板右缘外 2px。
+         * 面板宽度改了（crafting_menu.json 的 image_width）这里要跟着改，不会再自动跟随。
+         */
+        public RectDef help_button = new RectDef();
+        /**
+         * 零件数值浮窗——落在主面板**左侧之外**，右端 4px 压在主面板底下（画在主面板之前，
+         * 由主面板的左边缘盖住），观感同原版创造模式物品栏那排标签页。两个界面共用这一份。
+         * <p>
+         * 两处耦合，改这里或改它们的值时都要对一眼：
+         * <ul>
+         *   <li>{@code height} 必须等于 {@code crafting_menu.json} 的 {@code image_height}——
+         *       "高度和主贴图相同"就是这条，上下沿才会连成一条线；</li>
+         *   <li>{@code width + x_offset}（= 压在面板底下的那几像素）与
+         *       {@code -x_offset}（= 伸到面板左边多远）都要落在 JEI 的左侧避让区内，
+         *       否则 JEI 的物品列表会盖到它上面：避让区见 {@code CwcJeiPlugin.KEEP_OUT}
+         *       （现为 100，即浮窗左边最多伸出 100px、且 <= 100 才被完全护住；
+         *       现值 96 ≤ 100，留 4px 余量）。</li>
+         * </ul>
+         */
+        public RectDef info_panel = new RectDef();
 
         public CraftingScreen() {
-            cycle_button.x_offset = 155;
-            cycle_button.y_offset = -12;
-            cycle_button.width = 54;
-            cycle_button.height = 14;
-            part_grid.x_offset = 155;
-            part_grid.y_offset = 8;
-            part_grid.width = 54;
+            cycle_button.x_offset = 12;
+            cycle_button.y_offset = 79;
+            // 16×16：必须等于字形贴图 cycle.png 的尺寸——ImageButton 把字形按按钮尺寸整张 blit
+            cycle_button.width = 16;
+            cycle_button.height = 16;
+            part_grid.x_offset = 66;
+            part_grid.y_offset = 19;
+            part_grid.width = 102;
             part_grid.height = 80;
+            help_button.x_offset = 178;
+            help_button.y_offset = 0;
+            help_button.width = 16;
+            help_button.height = 16;
+            info_panel.x_offset = -96;
+            info_panel.y_offset = 0;
+            info_panel.width = 100;
+            info_panel.height = 192;
         }
     }
 
     // ──── 图标网格 ────
 
     public static class IconGrid {
-        public int cols = 3;
+        /** 列数——必须与 {@code crafting_screen.json} 的 part_grid 宽度自洽：cols×16 + 滚动条6 ≤ 宽度 */
+        public int cols = 6;
         public int icon_size = 16;
         public int row_height = 16;
         public int thumb_width = 6;
         public int thumb_height = 16;
     }
 
-    // ──── 物品栏布局 ────
-
-    public static class InventoryLayout {
-        public int hotbar_gap = 4;
-    }
-
     // ──── 组装界面 ────
 
     public static class AssemblingScreenLayout {
-        public NameFieldDef name_field = new NameFieldDef();
+        public RectDef name_field = new RectDef();
         public SlotListDef slot_list = new SlotListDef();
+        /** 底座槽的坐标——对应 assembling.png 上烘焙死的槽框，与零件列表的三行分开配置 */
+        public SlotDef base_slot = new SlotDef();
         public AssemblingScreenLayout() {
-            name_field.x_offset = 48;
-            name_field.y_offset = 10;
+            base_slot.x = 11;
+            base_slot.y = 80;
+            name_field.x_offset = 8;
+            name_field.y_offset = 22;
             name_field.width = 160;
             name_field.height = 12;
-            slot_list.x_offset = 115;
-            slot_list.y_offset = 22;
+            slot_list.x_offset = 75;
+            slot_list.y_offset = 34;
             slot_list.width = 93;
             slot_list.height = 66;
             slot_list.row_height = 22;
             slot_list.scrollbar_width = 6;
-            slot_list.frame.x_offset = 2;
-            slot_list.frame.y_offset = 2;
+            slot_list.scrollbar_height = 16;
+            slot_list.frame.x_offset = 3;
+            slot_list.frame.y_offset = 3;
+            slot_list.frame.size = 18;
             slot_list.info.x_offset = 23;
-            slot_list.info.y_offset = 4;
+            slot_list.info.y_offset = 3;
             slot_list.info.size = 16;
             slot_list.text.x_offset = 41;
             slot_list.text.y_offset = 7;
         }
     }
 
-    public static class NameFieldDef {
-        public int x_offset, y_offset, width, height;
-        public NameFieldDef() {}
-    }
-
     /** 零件改造列表（SlotList）布局 */
     public static class SlotListDef {
         public int x_offset, y_offset, width, height;
-        public int row_height, scrollbar_width;
+        public int row_height, scrollbar_width, scrollbar_height;
         public FrameDef frame = new FrameDef();
         public InfoDef info = new InfoDef();
         public TextDef text = new TextDef();
         public SlotListDef() {}
     }
 
-    /** 物品框——只用到两个偏移（框体尺寸由贴图与槽位原生 18px 决定） */
+    /** 行内物品框——偏移量指到框内 16×16 内容的左上角，size 是含 1px 边框的整框边长（原版 18） */
     public static class FrameDef {
-        public int x_offset, y_offset;
+        public int x_offset, y_offset, size;
         public FrameDef() {}
     }
 

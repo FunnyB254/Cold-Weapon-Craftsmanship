@@ -1,17 +1,19 @@
 {
+  "base_slot": { "x": 11, "y": 80 },
   "name_field": {
-    "x_offset": 48,
-    "y_offset": 16,
+    "x_offset": 8,
+    "y_offset": 22,
     "width": 160,
     "height": 12
   },
   "slot_list": {
-    "x_offset": 115,
-    "y_offset": 28,
+    "x_offset": 75,
+    "y_offset": 34,
     "width": 93,
     "height": 66,
     "row_height": 22,
     "scrollbar_width": 6,
+    "scrollbar_height": 16,
     "frame": {
       "x_offset": 3,
       "y_offset": 3,
@@ -19,7 +21,7 @@
     },
     "info": {
       "x_offset": 23,
-      "y_offset": 4,
+      "y_offset": 3,
       "size": 16
     },
     "text": {

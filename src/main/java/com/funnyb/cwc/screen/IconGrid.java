@@ -19,7 +19,8 @@ import java.util.function.Predicate;
  *   <li>格子排列（列数可配），每个格子渲染一个 ItemStack 图标</li>
  *   <li>鼠标滚轮上下滚动，拖拽滚动条滑块快速跳转</li>
  *   <li>点击图标选中零件——选中后显示 select.png 覆盖层并打印日志</li>
- *   <li>不裁剪溢出：允许零件贴图超出 16×16 格子完整显示（如 32×32 手半剑），溢出部分可能覆盖相邻格子/背景</li>
+ *   <li>格子内的溢出**不裁**：允许零件贴图超出 16×16 格子完整显示（如 32×32 手半剑），
+ *       溢出部分可能覆盖相邻格子；但**整块网格矩形外要裁**，免得压到列表凹槽的边框上（见 render）</li>
  *   <li>悬停检测仅在网格可见区域内生效（防止列表外误触发 tooltip）</li>
  * </ul>
  * 列数、图标尺寸、行高、滑块尺寸从 assets/cwc/gui/icon_grid.json 读取，资源包可覆盖。
@@ -209,7 +210,10 @@ public class IconGrid {
     // ──── 渲染 ────
 
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY) {
-        // 不裁剪：允许贴图超出格子完整显示（如 32×32 手半剑），滚动滚出的残影随之可见属预期
+        // 裁到网格矩形：格子内部**不**裁（32×32 手半剑那类图标要完整显示，允许压到相邻格子上），
+        // 但整块必须裁——否则最右/最上列的 32px 图标会画到列表凹槽的**边框外面**去。
+        // 制造台贴图那块列表是"不盖住边框"画出来的，32px 的 long_blade/half_sword 一旦溢出就越界。
+        guiGraphics.enableScissor(x, y, x + width, y + height);
         int rows = rows();
         int cs = cols();
         int is = iconSize();
@@ -228,8 +232,9 @@ public class IconGrid {
                 }
             }
         }
+        guiGraphics.disableScissor();
 
-        // 滚动条滑块
+        // 滚动条滑块——画在裁切之外，滑块本来就在列表矩形的最右一列、不该被裁掉半个
         int ms = maxScroll();
         if (ms > 0) {
             int th = thumbHeight();

@@ -40,7 +40,7 @@ public class ColdWeaponCraftsmanship {
     /** SLF4J 日志实例 */
     public static final Logger LOGGER = LogUtils.getLogger();
 
-    /** 方块 DeferredRegister（预留，尚未注册方块） */
+    /** 方块 DeferredRegister（实际注册的方块见 {@code registry/CwcBlocks}） */
     public static final DeferredRegister.Blocks BLOCKS = DeferredRegister.createBlocks(MODID);
 
     /**
@@ -60,7 +60,7 @@ public class ColdWeaponCraftsmanship {
         NeoForge.EVENT_BUS.register(this);
         NeoForge.EVENT_BUS.register(new CwcCombatEvents());
         NeoForge.EVENT_BUS.register(new CwcOwnership());
-        modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
+        modContainer.registerConfig(ModConfig.Type.CLIENT, Config.SPEC);
     }
 
     /** 模组通用初始化完成时打印日志 */

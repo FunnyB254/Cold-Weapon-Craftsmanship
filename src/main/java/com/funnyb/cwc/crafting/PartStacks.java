@@ -52,11 +52,24 @@ public final class PartStacks {
         return build(itemFor(partId), partId, partLangKey(partId));
     }
 
-    /** 通用构建：物品 + 身份 + 名称 key */
+    /**
+     * 通用构建：物品 + 身份 + 名称 key。
+     * <p>
+     * 名字写 {@code ITEM_NAME}（物品**自带**的变体名），不写 {@code CUSTOM_NAME}（玩家改名的语义）。
+     * 两者在 {@code ItemStack#getHoverName} 里都会被取到，但 {@code CUSTOM_NAME} 会让名字在 tooltip 和
+     * 快捷栏名称浮层里变成**斜体**（{@code ItemStack#getTooltipLines} / {@code Gui#renderSelectedItemName}
+     * 里只要 {@code has(CUSTOM_NAME)} 就 {@code withStyle(ITALIC)}）——零件这种出厂自带的名字不该带
+     * "被谁改过名"的画风。玩家在装配台里输入的名字仍写 {@code CUSTOM_NAME}（{@code AssemblingMenu#renameItem}），
+     * 那一处斜体是对的。
+     * <p>
+     * 副作用（预期内的）：装配台的改名框镜像的是 {@code CUSTOM_NAME}，所以新底座进槽时框里是空的，
+     * 不再预填底座自带的名字；相应地也不会再"打开一次界面就把零件名写进 {@code CUSTOM_NAME}"。
+     * 清空输入框 = 删掉 {@code CUSTOM_NAME}，于是回落到底座自带的那个名字。
+     */
     public static ItemStack build(Item item, String id, String nameKey) {
         ItemStack stack = new ItemStack(item);
         stack.set(CwcDataComponents.PART_IDENTITY.get(), id);
-        stack.set(DataComponents.CUSTOM_NAME, Component.translatable(nameKey));
+        stack.set(DataComponents.ITEM_NAME, Component.translatable(nameKey));
         return stack;
     }
 

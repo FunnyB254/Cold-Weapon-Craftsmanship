@@ -23,7 +23,11 @@ sourceSets.main.resources {
 
     // Exclude common development only resources from finalized outputs
     exclude("**/*.bbmodel") // BlockBench project files
-    exclude("src/generated/**/.cache") // datagen cache files
+    // datagen 缓存目录。srcDir 是 src/generated/resources，所以相对路径就是 ".cache"，
+    // 原来写的 "src/generated/**/.cache" 永远匹配不上——结果往 jar 里塞了一个空的 `.cache/` 目录条目，
+    // 让"本地 build 的 jar"与"CI build 的 jar"同版本号却不同字节。
+    exclude("**/.cache")
+    exclude("**/.cache/**")
 }
 
 repositories {
@@ -35,6 +39,12 @@ repositories {
     }
     maven {
         url = "https://neoforged.forgecdn.net/releases"
+    }
+    maven {
+        // JEI：它只是**可选依赖**，但编译期要有来源——compat/jei/CwcJeiPlugin 引了 mezz.jei 的类。
+        // 必须写在 build.gradle 里，不能只写 settings.gradle 的 dependencyResolutionManagement：
+        // 那份默认被项目级仓库覆盖（PREFER_PROJECT），改它静默不生效。
+        url = "https://maven.blamejared.com"
     }
     mavenCentral()
 }
@@ -75,9 +85,10 @@ neoForge {
             // 服务端用独立的游戏目录：runClient 与 runServer 共用 run/ 会出两个问题——
             //   1. logs/latest.log 被两个进程同时写，客户端那半的日志（第三步要靠它判贴图/注册表）
             //      会和服务端的交错甚至打不开（Windows 上 rename 失败 = "Device or resource busy"）；
-            //   2. mods/ 共享，而 run/mods/ 里的 Sodium/Lithium 是纯客户端 mod，
+            //   2. mods/ 共享，而 run/mods/ 里的 Sodium 是纯客户端 mod，
             //      服务端加载会 NoClassDefFoundError: org/lwjgl/Version 直接崩。
-            // 分开之后就不必再把那两个 jar 搬来搬去（搬走忘了搬回来是踩过的坑）。
+            // 分开之后就不必再把 jar 搬来搬去（搬走忘了搬回来是踩过的坑）；
+            // 两端都该有的（Lithium / JEI）在 run/mods/ 和 run-server/mods/ 各放一份。
             gameDirectory = project.file('run-server')
 
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
@@ -139,17 +150,28 @@ dependencies {
     // dev 调试依赖：Jade 实体/方块信息显示，仅 runClient 时加载，不发布进 mod 产物
     localRuntime files("libs/Jade-1.21.1-NeoForge-15.10.5.jar")
 
-    // dev 测试模组：Sodium / Lithium 性能模组，仅本地测试用，代码不引用、元数据不依赖
-    // 注意它们要放 run/mods/ 加载，不能用 localRuntime：Sodium 0.8.x 是 JarJar 套壳 jar，
-    // 走类路径时 FML 会选中外壳文件，嵌套 jar 里的 mixin 配置全部丢失（mod 显示已加载但不起作用）
-    // libs/ 下留了同版本 jar 作备份，run/ 被清掉时重新拷进 run/mods/ 即可
+    // dev 调试依赖：MmmMmmMmmMmm（标靶假人）——打武器伤害数值的靶子，本地测试用，不发布、代码与元数据都不依赖
+    // 它必须带前置 Moonlight Lib，两个 jar 都在 libs/，和 Jade 一样走 localRuntime（类路径）
+    // 选类路径而不是 run/mods：标靶是双端 mod（假人实体得在服务端存在），类路径对 runClient 和
+    // runServer 一视同仁，不用往两个 mods/ 目录各拷一份
+    // 两者都是普通 jar（自身 mixin 就在 jar 根，不是 JarJar 套壳），所以没有 Sodium 那个"外壳赢、mixin 全丢"的坑；
+    // Moonlight 里嵌套的 codecui 是另一个 modid，不撞车
+    localRuntime files("libs/dummmmmmy-1.21-2.1.2-neoforge.jar")
+    localRuntime files("libs/moonlight-1.21.1-3.7.0-neoforge.jar")
 
-    // Example optional mod dependency with JEI
-    // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime
-    // compileOnly "mezz.jei:jei-${mc_version}-common-api:${jei_version}"
-    // compileOnly "mezz.jei:jei-${mc_version}-neoforge-api:${jei_version}"
-    // We add the full version to localRuntime, not runtimeOnly, so that we do not publish a dependency on it
-    // localRuntime "mezz.jei:jei-${mc_version}-neoforge:${jei_version}"
+    // dev 测试模组：Sodium / Lithium 性能模组 + JEI 配方查看，仅本地测试用，代码不引用、元数据不依赖
+    // 它们要放游戏目录的 mods/ 加载（客户端 run/mods/、服务端 run-server/mods/），不能用 localRuntime：
+    // Sodium 0.8.x 是 JarJar 套壳 jar，走类路径时 FML 会选中外壳文件，
+    // 嵌套 jar 里的 mixin 配置全部丢失（mod 显示已加载但一条都没注入）
+    // libs/ 下留了同版本 jar 作备份，run/ 或 run-server/ 被清掉时重新拷进去即可
+
+    // JEI 联动（只用到 API：给 JEI 报界面占用的额外区域），所以 compileOnly——
+    // 不打进 mod 产物、玩家没装 JEI 照常跑（元数据里只声明成 optional，见 neoforge.mods.toml）。
+    // 走 Maven 坐标而不是 libs/ 里的本地 jar：libs/ 被 .gitignore 忽略，干净 clone 上
+    // 编译 CwcJeiPlugin 会找不到 mezz.jei 包，`./gradlew build` 直接失败（CI 就是因此红的）。
+    // transitive = false：编译期只用到 JEI 自己的 API，不需要它的传递依赖。
+    // 注意 JEI 同样是 JarJar 套壳 jar，**运行时**那一份仍然只能由 run/mods/、run-server/mods/ 提供。
+    compileOnly("mezz.jei:jei-1.21.1-neoforge:${jei_version}") { transitive = false }
 
     // Example mod dependency using a mod jar from ./libs with a flat dir repository
     // This maps to ./libs/coolmod-${mc_version}-${coolmod_version}.jar
@@ -195,8 +217,30 @@ tasks.register('copyModsToml', Copy) {
 tasks.named('processResources').configure { finalizedBy 'copyModsToml' }
 classes.dependsOn copyModsToml
 
-// Allow duplicate META-INF/neoforge.mods.toml from classes and resources
-tasks.withType(Jar).configureEach { duplicatesStrategy = DuplicatesStrategy.EXCLUDE }
+// 校验：neoforge.mods.toml 的 version 必须与 gradle.properties 的 mod_version 一致。
+// 手写 toml + gradle 属性是两处版本号，漂了就会出现"jar 名与元数据版本不符"而没人发现。
+tasks.register('checkModMetadata') {
+    def tomlFile = layout.projectDirectory.file('src/main/resources/META-INF/neoforge.mods.toml')
+    def expected = mod_version
+    inputs.file(tomlFile)
+    inputs.property('mod_version', expected)
+    doLast {
+        def text = tomlFile.asFile.getText('UTF-8')
+        if (!(text =~ /(?m)^\s*version\s*=\s*"\Q${expected}\E"\s*$/)) {
+            throw new GradleException("neoforge.mods.toml 的 version 与 gradle.properties 的 mod_version(${expected}) 不一致")
+        }
+    }
+}
+tasks.named('processResources') { dependsOn 'checkModMetadata' }
+
+// Allow duplicate META-INF/neoforge.mods.toml from classes and resources。
+// 作用域收窄到 jar 本身（原来用 withType(Jar)，会连带影响将来任何 Jar 任务）；
+// 同时打开可复现构建：去掉条目时间戳、锁定文件顺序，让同样的源码产出字节相同的 jar。
+tasks.named('jar') {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+}
 
 // Example configuration to allow publishing using the maven-publish plugin
 publishing {

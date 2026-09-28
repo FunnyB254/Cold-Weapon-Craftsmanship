@@ -1,7 +1,5 @@
 package com.funnyb.cwc.menu;
 
-import com.funnyb.cwc.layout.Layouts;
-
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.Slot;
@@ -11,9 +9,10 @@ import java.util.function.Consumer;
 /**
  * 可复用的物品栏布局组件。
  * 管理玩家背包（3行×9列）+ 快捷栏（1行×9列）共 36 个槽位的位置和渲染贴图。
- * 以首格左上角为基准，按 18px 间距自动排列所有槽位。
  * <p>
- * 布局参数从 assets/cwc/gui/inventory_layout.json 读取，资源包可覆盖。
+ * 这 27+9 个槽位由**一个坐标**定位——即整块的左上角，由 gui/crafting_menu.json 的 {@code inventory} 给出。
+ * 内部排列（18px 间距 + 快捷栏额外间隔）是原版几何，硬编码在本类里：它必须与烘焙在面板贴图上的
+ * 槽位框逐像素对齐，不是可调项。
  */
 public class InventoryLayout {
 
@@ -25,6 +24,13 @@ public class InventoryLayout {
     private static final int ROWS = 3;
     /** 标准槽位渲染尺寸（Minecraft 规范值，不可配置） */
     private static final int SLOT_SIZE = 18;
+    /**
+     * 快捷栏与背包之间的额外间隔（原版值）。
+     * <p>
+     * 它和上面的 18px 间距一样，是硬编码的原版几何——面板贴图上烘焙死的槽位框就按这套尺寸画的，
+     * 改了必然错位，所以不留配置口子。整块唯一的可调项是左上角坐标（见类注释）。
+     */
+    private static final int HOTBAR_GAP = 4;
 
     /** 背景贴图资源位置 */
     public final ResourceLocation texture;
@@ -62,7 +68,7 @@ public class InventoryLayout {
         this.texHeight = texHeight;
         this.startX = startX;
         this.startY = startY;
-        this.hotbarY = startY + ROWS * SLOT_SIZE + Layouts.inventoryLayout().hotbar_gap;
+        this.hotbarY = startY + ROWS * SLOT_SIZE + HOTBAR_GAP;
     }
 
     /**

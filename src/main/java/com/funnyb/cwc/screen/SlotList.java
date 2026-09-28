@@ -3,6 +3,7 @@ package com.funnyb.cwc.screen;
 import com.funnyb.cwc.layout.Layouts;
 import com.funnyb.cwc.crafting.PartTypeDef;
 
+import net.minecraft.Util;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.WidgetSprites;
@@ -20,6 +21,9 @@ import java.util.Map;
  * 与悬停 tooltip 的渲染，以及滚动交互。
  * 滚动行数由服务端 ContainerData 权威持有，本组件仅向服务端发送滚动意图。
  * <p>
+ * 行数据不足可见行数时（武器的槽位比列表行数少），多出来的行是"不存在的槽位"：
+ * 那一行的框会被 {@link #ROW_BG} 盖掉，名称、详情热区也都不画，整行看上去就是一块空凹底。
+ * <p>
  * 布局参数从 assets/cwc/gui/assembling_screen.json 读取，资源包可覆盖。
  */
 public class SlotList {
@@ -27,6 +31,13 @@ public class SlotList {
     /** 滚动条滑块贴图 */
     private static final ResourceLocation SLIDER_TEX =
             ResourceLocation.fromNamespaceAndPath("coldweaponcraftsmanship", "textures/gui/slider.png");
+
+    /**
+     * 空行遮盖色——必须与面板贴图上列表凹底的内部同色（{@code #8B8B8B}，即原版槽位底色的灰）。
+     * <p>
+     * 凹底内部除那几个槽位框之外是纯一色，所以拿它盖掉空行的框之后逐像素看不出来。
+     */
+    private static final int ROW_BG = 0xFF8B8B8B;
 
     /**
      * 详情热区的键体精灵——就是原版按钮用的那三张，悬停时和原版按钮一样换成高亮态。
@@ -56,6 +67,15 @@ public class SlotList {
     /** 是否有滚动空间（决定滑块显示） */
     private boolean scrollable = false;
 
+    /**
+     * 槽位名那批滚动的相位原点——"上次画的行内容"与"上次的滚动位置"。
+     * 二者之一变了就说明屏幕上换了名字，滚动从头开始（见 {@link ScrollingText}）。存内容而不是存时间：
+     * 每帧都会传一份**等值的新 list** 进来，只能按值判，不能按引用判。
+     */
+    private List<Row> shownRows = List.of();
+    private int shownScrollRows = 0;
+    private long namesShownSince;
+
     private boolean dragging = false;
     private int dragOffsetFromThumbTop = 0;
 
@@ -84,9 +104,17 @@ public class SlotList {
      * @param maxScroll   最大滚动行数
      */
     public void setRows(List<Row> rows, int visibleRows, int scrollRows, int maxScroll) {
+        int clamped = Math.max(0, Math.min(scrollRows, maxScroll));
+        // 行内容或滚动位置变了 = 屏幕上换了一批槽位名，滚动相位归零。
+        // Row / SlotDef 都是 record，按值比较——每帧传进来的是一份等值的新 list，不会每帧误判成"变了"
+        if (!rows.equals(shownRows) || clamped != shownScrollRows) {
+            shownRows = List.copyOf(rows);
+            shownScrollRows = clamped;
+            namesShownSince = Util.getMillis();
+        }
         this.rows = rows;
         this.visibleRows = visibleRows;
-        this.scrollRows = Math.max(0, Math.min(scrollRows, maxScroll));
+        this.scrollRows = clamped;
         this.scrollable = maxScroll > 0;
     }
 
@@ -110,11 +138,15 @@ public class SlotList {
     private Layouts.SlotListDef cfg() { return Layouts.assemblingScreen().slot_list; }
     private int rowHeight() { return cfg().row_height; }
     private int scrollbarWidth() { return cfg().scrollbar_width; }
+    /** 滑块高（= 滑条贴图高）。夹到 ≥1：JSON 里缺这个字段时是 0，滑块会整条消失 */
+    private int scrollbarHeight() { return Math.max(1, cfg().scrollbar_height); }
     private int textOffsetX() { return cfg().text.x_offset; }
     private int textOffsetY() { return cfg().text.y_offset; }
     private int infoOffsetX() { return cfg().info.x_offset; }
     private int infoOffsetY() { return cfg().info.y_offset; }
     private int infoSize() { return cfg().info.size; }
+    /** 物品框含边框的边长。夹到 ≥1：JSON 里缺这个字段时是 0，遮盖会画不出东西 */
+    private int frameSize() { return Math.max(1, cfg().frame.size); }
 
     /** 列表主体宽度（不含滑条） */
     private int bodyWidth() {
@@ -163,7 +195,7 @@ public class SlotList {
         if (dragging) {
             int maxRows = maxScrollRows();
             if (maxRows > 0) {
-                int trackHeight = height - 16;
+                int trackHeight = height - scrollbarHeight();
                 float ratio = (float) (mouseY - dragOffsetFromThumbTop - y) / trackHeight;
                 requestScroll(Math.round(ratio * maxRows));
             }
@@ -188,7 +220,7 @@ public class SlotList {
     private int currentThumbY() {
         int maxRows = maxScrollRows();
         if (maxRows > 0) {
-            return y + (int) ((float) scrollRows / maxRows * (height - 16));
+            return y + (int) ((float) scrollRows / maxRows * (height - scrollbarHeight()));
         }
         return y;
     }
@@ -196,7 +228,7 @@ public class SlotList {
     private boolean isOnThumb(int mx, int my) {
         if (!scrollable) return false;
         int thumbY = currentThumbY();
-        return mx >= x && mx < x + scrollbarWidth() && my >= thumbY && my < thumbY + 16;
+        return mx >= x && mx < x + scrollbarWidth() && my >= thumbY && my < thumbY + scrollbarHeight();
     }
 
     // ──── 悬停查询 ────
@@ -240,7 +272,17 @@ public class SlotList {
         for (int i = 0; i < visibleRows; i++) {
             Row row = visibleRow(i);
             int ry = visibleRowY(i);
-            if (row == null) break;
+            if (row == null) {
+                // 空行——行数据只按实际槽位数建，所以超出的行是"这条槽位在这个武器上不存在"。
+                // 把烘焙在面板贴图上的物品框盖掉：不盖就会留一个空框，既没有标签也放不进东西。
+                // 遮盖色与凹底内部同色（见 ROW_BG），所以看不出接缝；凹底本身不动——它是列表本体的
+                // 框，也是滚动视口的边界，收短它要连底边框一起搬，那是另一回事。
+                int fs = frameSize();
+                int fx = bodyX() + cfg().frame.x_offset - 1;
+                int fy = ry + cfg().frame.y_offset - 1;
+                guiGraphics.fill(fx, fy, fx + fs, fy + fs, ROW_BG);
+                continue;
+            }
 
             // 行背景【不在这里画】——凹底和 3 个槽位框已永久烘焙进 assembling.png，
             // 像原版容器那样固定不动，滚动只换内容。这里只画随行变化的东西。
@@ -254,11 +296,11 @@ public class SlotList {
             guiGraphics.blit(GuiIcons.INFO, bodyX() + infoOffsetX(), ry + infoOffsetY(),
                     0, 0, infoSize(), infoSize(), infoSize(), infoSize());
 
-            // 槽位名称——按像素宽度截断 + 省略号
-            String name = Component.translatable(row.slotDef().name()).getString();
-            guiGraphics.drawString(Minecraft.getInstance().font,
-                    truncateToWidth(name, bodyWidth() - textOffsetX()),
-                    bodyX() + textOffsetX(), ry + textOffsetY(), 0xFFFFFF);
+            // 槽位名称——放不下就循环滚动，与数值浮窗同一套（见 ScrollingText）
+            ScrollingText.draw(guiGraphics, Minecraft.getInstance().font,
+                    Component.translatable(row.slotDef().name()),
+                    bodyX() + textOffsetX(), ry + textOffsetY(),
+                    bodyWidth() - textOffsetX(), Util.getMillis() - namesShownSince, 0xFFFFFF, true);
         }
 
         guiGraphics.disableScissor();
@@ -266,21 +308,10 @@ public class SlotList {
         // 滚动条滑块——贴区域左边界
         if (scrollable) {
             int thumbY = currentThumbY();
-            guiGraphics.blit(SLIDER_TEX, x, thumbY, 0, 0, scrollbarWidth(), 16, scrollbarWidth(), 16);
+            int sw = scrollbarWidth();
+            int sh = scrollbarHeight();
+            guiGraphics.blit(SLIDER_TEX, x, thumbY, 0, 0, sw, sh, sw, sh);
         }
-    }
-
-    /** 按像素宽度截断字符串，超出加省略号 */
-    private String truncateToWidth(String text, int maxWidth) {
-        var font = Minecraft.getInstance().font;
-        if (font.width(text) <= maxWidth) return text;
-        String ellipsis = "...";
-        int ellipsisWidth = font.width(ellipsis);
-        String truncated = text;
-        while (font.width(truncated) + ellipsisWidth > maxWidth && !truncated.isEmpty()) {
-            truncated = truncated.substring(0, truncated.length() - 1);
-        }
-        return truncated + ellipsis;
     }
 
     /**

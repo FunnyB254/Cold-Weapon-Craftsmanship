@@ -224,7 +224,7 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 | `parser` | **是** | 数据形状的分派键，见下表 |
 | `type` | **是** | 所属类型的注册表 id。**显式字段**——旧版靠"去掉 id 最后一个点号"推导，那等于把目录结构变成语义，已废除 |
 | `data` | 否 | 形状随 `parser` 而变 |
-| `recipes` | 否 | 配方列表，每条固定 3 格（制作用 3 个输入槽）。**空对象 `{}` 表示该格无材料要求**（不能写 `null`，DFU 的列表不接受 null 元素） |
+| `recipes` | 否 | 配方列表，每条是一串 ingredient。制造台的 3×3 输入格按**无序**匹配——材料放哪一格都行，只看"够不够"；`count` 算的是**物品总数**（一堆 4 个放一格也算数，不是原版那种一格子一件）。**空对象 `{}` 表示无这项材料要求**（不能写 `null`，DFU 的列表不接受 null 元素） |
 
 ### `parser` 与 `data` 的形状
 
@@ -255,9 +255,11 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 >    而格挡需要**刃声明 + 双手手柄放行**——所以镡插在**单手**武器上、插在**短刃**武器上、
 >    或者插在裸手柄上，`block` 会被聚合算出来但**没有任何代码读它**。
 >    换句话说：**只有双手武器才可能格挡**，镡的减伤（`0.25` 基础 + 镡 `block`）只在双手武器上生效。
-> 2. **它不会出现在任何 tooltip 上。** `block` 不是原版 attribute，而是一个聚合进装配树的普通数值，
+> 2. **原版属性 tooltip 上没有它。** `block` 不是原版 attribute，而是一个聚合进装配树的普通数值，
 >    不落任何组件、每次受击现算，只在格挡伤害结算里体现。悬停镡看不到属性行是正常的（镡是普通零件物品，
 >    属性只在**手柄底座**上推导）。
+>    唯一能看到它的地方是制造台/装配台左侧那个**零件数值浮窗**（它自己列 `block` 一行，
+>    不受原版 attribute 机制约束）。
 >
 > 另外 `scale` 对 `block` **无效**（只对 `damage`/`speed`/`durability` 生效）。
 > 格挡减伤公式 = `0.25`（基础）+ 镡 `block` 之和，最终夹到 `[0, 0.95]`。
@@ -306,9 +308,11 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
   └─ PartRegistry.bind(level.registryAccess())   ← 缓存注册表引用（客户端与服务端都会触发）
      └─ 之后所有零件查询走 PartRegistry 的静态入口（不需要 RegistryAccess）
 
-制造台方块 → CraftingMenu
-  └─ 按类型分组列出零件 → 选材质 → 检查背包材料 → 输出槽出成品
-     └─ 取出时扣材料，产物带 PART_IDENTITY
+制造台方块 → CraftingMenu（工作台式：左上 3×3 输入格 + 左下产出，右侧选类型）
+  └─ 右侧列表按类型分组列出零件 → 选中一类 → 往 3×3 里摆材料
+     └─ 在该类型的各材质变体里找**配方被格子满足**的那一条（无序、按物品总数）→ 输出槽出那一件
+        └─ 同时满足多条 = 配方冲突 → 左侧轮换按钮点亮，点击在候选间切换
+           └─ 取出时从**格子**扣材料，产物带 PART_IDENTITY；关界面时格子里的东西还给玩家
 
 装配台方块 → AssemblingMenu
   └─ 底座槽放零件（任意带 PART_IDENTITY 的零件，以便先拼子装配体）

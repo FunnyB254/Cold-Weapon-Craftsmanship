@@ -21,3 +21,12 @@ description="Cold Weapon Craftsmanship is a mod that guides players in crafting 
     versionRange="[1.21.1]"
     ordering="NONE"
     side="BOTH"
+
+# JEI 是**可选**依赖：装了就有界面避让联动，没装照常跑（本模组的 JEI 代码走 compileOnly，
+# 只在 jei 存在时被 JEI 自己的插件扫描加载）。声明它只是为了给加载顺序一个依据。
+[[dependencies.coldweaponcraftsmanship]]
+    modId="jei"
+    type="optional"
+    versionRange="[19,)"
+    ordering="NONE"
+    side="CLIENT"
