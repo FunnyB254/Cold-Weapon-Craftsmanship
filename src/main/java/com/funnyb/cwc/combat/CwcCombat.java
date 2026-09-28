@@ -38,6 +38,7 @@ import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.scores.Team;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.WeakHashMap;
 
@@ -64,7 +65,9 @@ import java.util.WeakHashMap;
  * （{@link WeaponBehavior}，旧数据由 {@link PartTypeDef.AttackStyle} 折算）权威结算。
  *
  * 普攻方式：单体直击（normal，无暴击）/ 横扫（sweep，范围内全额伤害）/ 跳劈暴击（critical，原版 ×1.5）。
- * CWC 武器无视原版无敌帧：所有伤害入口命中前都清零目标 {@code invulnerableTime}。
+ * CWC 武器的无敌帧豁免**不是无条件的**：只在"本攻击者刚打过**同一个**目标"（20 tick 窗口内）时才
+ * 清零目标的 {@code invulnerableTime}——见 {@link #bypassOwnInvulnerability}（原为无条件清零，
+ * 2026-09-19 按 BUG-015 收窄）。
  */
 public final class CwcCombat {
 
@@ -946,20 +949,25 @@ public final class CwcCombat {
     /** 无敌帧豁免窗口——原版受击保护持续 20 tick，超出这个窗口就与本模组自己的上一次命中无关了 */
     private static final int INVULN_BYPASS_WINDOW_TICKS = 20;
 
-    /** 每个攻击者上一次的命中（目标实体 id + 所在 tick）。WeakHashMap 以免玩家退出后残留条目 */
-    private static final Map<Player, HitRecord> LAST_HIT = new WeakHashMap<>();
-
-    /** @param targetId 上一次命中的目标实体 id @param tick 命中时所在的世界 tick */
-    private record HitRecord(int targetId, long tick) {}
+    /**
+     * 每个攻击者 →（**目标实体 id → 上次命中它的 tick**）。WeakHashMap 以免玩家退出后残留条目。
+     * <p>
+     * <b>必须是"每个目标一格"，不能只留"上一次打的那个"</b>：一次挥击可以打中**多个**目标
+     * （横扫），只留一格的话每打一个就把它覆写掉，轮到下一个目标时看到的是"别人"的记录，
+     * 于是**场上只要有第二个目标，谁拿不到豁免**——包括主目标（{@code applySweep} 是先扫副目标、
+     * 最后打主目标）。那与本特性的意图正好相反：本模组自己打出来的 i-frame 反过来吞掉本模组自己的
+     * 下一刀。见 BUG-038。
+     */
+    private static final Map<Player, Map<Integer, Long>> LAST_HIT = new WeakHashMap<>();
 
     /**
-     * 无敌帧豁免——**只在"同一攻击者连续命中同一目标"时**清零 {@code invulnerableTime}。
+     * 无敌帧豁免——**只在"同一攻击者近期命中过同一目标"时**清零 {@code invulnerableTime}。
      * <p>
      * 设计意图（刻意保留的特性）：让本模组武器自己的快速连击不被原版的受击保护吞掉——双持快节奏依赖它。
      * 但原实现是**无条件**清零这个 public 字段，于是目标刚从**别的来源**（摔落、火焰、其他怪）得到的
-     * 保护也被一并抹掉。那不是这个特性的本意。
+     * 保护也被一并抹掉。那不是这个特性的本意（BUG-015）。
      * <p>
-     * 判定：该攻击者上一次命中就是同一个目标、且在 {@link #INVULN_BYPASS_WINDOW_TICKS} 之内
+     * 判定：这个攻击者上次打**这个目标**在 {@link #INVULN_BYPASS_WINDOW_TICKS} tick 之内
      * → 说明当前这段 i-frame 很可能就是本模组自己刚打出来的，清零；否则不动，尊重原版保护。
      * <p>
      * 注意第一次命中永远不清零。这不是缺陷：目标若没被近期打过，{@code invulnerableTime} 本来就是 0，
@@ -970,13 +978,11 @@ public final class CwcCombat {
      */
     private static void bypassOwnInvulnerability(Player attacker, Entity target) {
         long now = attacker.level().getGameTime();
-        int targetId = target.getId();
-        HitRecord last = LAST_HIT.get(attacker);
-        boolean ownRecentHit = last != null
-                && last.targetId() == targetId
-                && now - last.tick() <= INVULN_BYPASS_WINDOW_TICKS;
-        LAST_HIT.put(attacker, new HitRecord(targetId, now));
-        if (ownRecentHit) {
+        Map<Integer, Long> recent = LAST_HIT.computeIfAbsent(attacker, p -> new HashMap<>());
+        // 顺手清过期条目：这张表的存活期只有窗口那么长，不清会随"这个玩家打过的目标数"一直长
+        recent.values().removeIf(tick -> now - tick > INVULN_BYPASS_WINDOW_TICKS);
+        Long last = recent.put(target.getId(), now);
+        if (last != null && now - last <= INVULN_BYPASS_WINDOW_TICKS) {
             target.invulnerableTime = 0;
         }
     }
