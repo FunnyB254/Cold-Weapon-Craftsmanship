@@ -75,8 +75,14 @@ public final class CwcCombat {
     private static final double BASE_ATTACK_DAMAGE = 1.0;
     /** 横扫前方锥体水平/垂直半角（±75°） */
     private static final double SWEEP_CONE_HALF_ANGLE = Math.toRadians(75.0);
-    /** 横扫贴身球半径 = reach / 2（"攻击范围除以 2 是球的半径"） */
-    private static final double SWEEP_BALL_RADIUS_DIVISOR = 2.0;
+    /**
+     * 横扫贴身球半径（格）——**固定 1 格，不随手长 reach 缩放**。
+     * <p>
+     * 2026-09-29 由 {@code reach / 2} 改回定值：这个球是"贴身那一圈"，跟着手长放大会变成
+     * "背对目标也能扫到"（创造模式交互距离 5.0 → 半径 2.5 格，背对 2 格照样命中）。
+     * 手长只该管前方锥体那一段（{@link #SWEEP_CONE_HALF_ANGLE}）。
+     */
+    private static final double SWEEP_BALL_RADIUS = 1.0;
     /** 视线判挡余量：clip 命中方块距眼睛比目标近超过此值才判挡（服务端误差空间） */
     private static final double SWEEP_LOS_SLACK = 0.5;
 
@@ -480,7 +486,7 @@ public final class CwcCombat {
     /**
      * 横扫（sweep）——范围内全额伤害，挥出即范围攻击，**未命中（全空）也算**。
      * 范围判定为**双区域**：前方锥体（顶点玩家眼睛、轴 = 视线、水平/垂直半角各 ±75°、半径 = 手长 reach）
-     * 或贴身球（球心 = 玩家碰撞箱中心、半径 = reach/2），目标在**任一**区域内即吃伤害（见
+     * 或贴身球（球心 = 玩家碰撞箱中心、半径 = 固定 1 格，{@link #SWEEP_BALL_RADIUS}），目标在**任一**区域内即吃伤害（见
      * {@link #isInSweepDualRange}）；两个区域都做视线检测（{@link #hasLineOfSight}），墙后扫不到。
      * 副目标静默全额（不耗耐久/统计/音效），主目标走 primary 结算一次完整反馈；
      * 主目标服务端复核不通过（被墙挡/不在双区域）按空挥降级，横扫范围结算照旧。
@@ -672,14 +678,15 @@ public final class CwcCombat {
      * <ul>
      *   <li>区域 A 前方锥体：顶点玩家眼睛、轴 = 玩家视线、水平/垂直半角各 ±75°
      *       （{@link #SWEEP_CONE_HALF_ANGLE}）、半径 = 手长（reach），距离量法 = 眼睛到碰撞箱 ≤ reach；</li>
-     *   <li>区域 B 贴身球：球心 = 玩家碰撞箱中心、半径 = reach/2（{@link #SWEEP_BALL_RADIUS_DIVISOR}）。</li>
+     *   <li>区域 B 贴身球：球心 = 玩家碰撞箱中心、半径 = 固定 1 格（{@link #SWEEP_BALL_RADIUS}），
+     *       与手长无关。</li>
      * </ul>
      * 视线检测不在此方法内（客户端主目标由 hitResult 天然保证，服务端另行走 {@link #hasLineOfSight}）。
      */
     public static boolean isInSweepDualRange(Player player, Entity target, double reach) {
-        // 区域 B（贴身球）：球心 = 玩家碰撞箱中心，半径 = reach/2
-        double ballRadius = reach / SWEEP_BALL_RADIUS_DIVISOR;
-        if (target.getBoundingBox().distanceToSqr(player.getBoundingBox().getCenter()) <= ballRadius * ballRadius) {
+        // 区域 B（贴身球）：球心 = 玩家碰撞箱中心，半径固定 1 格（不随 reach 缩放，见 SWEEP_BALL_RADIUS）
+        if (target.getBoundingBox().distanceToSqr(player.getBoundingBox().getCenter())
+                <= SWEEP_BALL_RADIUS * SWEEP_BALL_RADIUS) {
             return true;
         }
 
