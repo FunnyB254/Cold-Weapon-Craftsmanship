@@ -110,12 +110,20 @@
 
 ## 许可证
 
-本模组采用**混合许可证**：
+本模组采用**混合许可证**，整体 SPDX 表达式为 `MIT AND LicenseRef-All-Rights-Reserved`：
 
 | 部分 | 许可证 | 全文 |
 |---|---|---|
-| 精灵图与调色板<br>（`/src/main/resources/assets/coldweaponcraftsmanship/cwc/sprite/`、<br>`/src/main/resources/assets/col| 精灵图与调色板（[sprite](src/main/resources/assets/coldweaponcraftsmanship/cwc/sprite/)、[palette](src/main/resources/assets/coldweaponcraftsmanship/cwc/palette/)） | All Rights Reserved | [LICENSE_TEXTURES](LICENSE_TEXTURES) |
-项目使用 **Mojang 的官方映射**。精灵图与调色板中的大多数**重度基于 Minecraft 自身的资产**——在 Minecraft 模组开发环境之外使用其中任何内容是一个危险的想法，请不要这么做。
+| 精灵图与调色板（[sprite](src/main/resources/assets/coldweaponcraftsmanship/cwc/sprite/)、[palette](src/main/resources/assets/coldweaponcraftsmanship/cwc/palette/)） | All Rights Reserved | [LICENSES/LicenseRef-All-Rights-Reserved.txt](LICENSES/LicenseRef-All-Rights-Reserved.txt) |
+| 其余部分（代码、数据定义、语言文件等） | MIT | [LICENSES/MIT.txt](LICENSES/MIT.txt) |
+
+许可证全文按 [REUSE 规范](https://reuse.software/)以 SPDX 标识符命名，存放在 [LICENSES/](LICENSES/) 目录下。
+
+**严禁二次分发精灵图与调色板。** 这些资产不允许被重新上传、打包进其他项目，或以任何形式再分发。
+
+本项目使用 **Mojang 的官方映射**。精灵图与调色板中的大多数**重度基于 Minecraft 自身的资产**——在 Minecraft 模组开发环境之外使用其中任何内容是一个危险的想法，请不要这么做。
+
+本项目建于 [NeoForge MDK](https://github.com/NeoForged/MDK) 之上，MDK 提供的模板文件同样以 MIT 许可证授权。
 
 ## 反馈与社区
 
