@@ -3,8 +3,8 @@
 零件与类型定义存放在两个**数据包注册表**里，由原版加载并在配置阶段同步到客户端。
 第三方模组与数据包都能读写这两个注册表。
 
-> 这份文档是**面向扩展作者**的契约，也是本格式的**唯一规格**（旧的 `part-json-spec.md` 描述的是迁移前的
-> 目录与 id 形式，已删除）。发布后 id 与文件位置就冻结了，改起来代价很高。
+> 这份文档是**面向扩展作者**的契约，也是本格式的**唯一规格**。发布后 id 与文件位置就冻结了，
+> 改起来代价很高。
 
 ## 注册表
 
@@ -33,24 +33,178 @@ Registry<PartDef> parts = access.registryOrThrow(CwcRegistries.PART);
 PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:standard_blade/iron"));
 ```
 
-## 类型定义（`part_type`）
+## 改完怎么生效
+
+**`/reload` 不会加载新的零件定义。**
+
+这两个注册表属于原版的 **WORLDGEN 层**，在**关卡加载时**由 `RegistryDataLoader` 读取一次；
+而 `/reload` 只重建 **RELOADABLE 层**（战利品表那一层）——它既不会重读 `data/**/cwc/**`，
+也不会重新触发绑定，数据也不会重新同步给客户端。
+
+| 你的定义放在 | 改完之后要做什么 |
+|---|---|
+| 世界存档的 `datapacks/` | **退出世界再进**（服务器则重启服务器），不必重启游戏 |
+| 模组 jar 内（`data/<命名空间>/cwc/...`） | 重新构建 jar，再重启游戏 / 服务器 |
+| 本仓库的 `src/main/resources/data/...` | 本地开发时游戏读的是构建产物（`build/resources/main`），改完要跑一次 `./gradlew processResources` 同步过去，再退出世界重进 |
+
+改完进游戏后，到日志里找这一行确认加载到了：
+
+```
+Loaded 8 part types / 56 parts
+```
+
+它出自 `PartRegistry.bind()`，触发点是**关卡加载**（服务端每个维度各打一次，客户端打一次）。
+
+> ⚠ **`/reload` 之后数据"没失效"不等于"能加载新数据"**：`/reload` 之后已经装配好的武器照常工作
+> （注册表引用仍然有效），但你新加的文件不会被读到。这两件事很容易混。
+
+### 条目数为 0 的排查清单
+
+文件放错位置**不会报错**，只是条目数为 0。按这个顺序查：
+
+1. 目录是不是 `data/<你的命名空间>/cwc/part/...`？那个 `cwc` 是**注册表键的命名空间**，
+   不是你的模组 id。写成 `data/yourmod/yourmod/cwc/part/` 就错了。
+2. 数据包有没有被启用？世界存档的 `datapacks/` 需要 `pack.mcmeta`，
+   且要在「数据包」界面里确认它处于**已启用**状态。
+3. 有没有真的重进世界？见上表——`/reload` 不管用。
+4. JSON 本身有没有解析错误？解析失败会单独报一条 ERROR，不会让你只看到"条数为 0"。
+
+### 最小可跑的数据包
+
+只加一个零件（mythril 标准刃）的最小数据包，放进世界存档的 `datapacks/`：
+
+```
+<世界存档>/datapacks/mythril_blade/
+├── pack.mcmeta
+└── data/
+    └── yourmod/
+        └── cwc/
+            └── part/
+                └── standard_blade/
+                    └── mythril.json
+```
+
+`pack.mcmeta`（1.21.1 的数据包版本号是 48）：
 
 ```json
 {
-  "data": { "type": "attack", "mount": "tang", "weight": "middle" },
-  "position": { "x": 5, "y": 10 },
+  "pack": {
+    "pack_format": 48,
+    "description": "Mythril blade"
+  }
+}
+```
+
+`mythril.json`——形状照抄本模组的铁刃，只改数值（材料用紫水晶碎片，免得和内置配方撞车）：
+
+```json
+{
+  "parser": "cwc:metal",
+  "type": "coldweaponcraftsmanship:standard_blade",
+  "data": {
+    "damage":     { "base": 3,    "hardnessMultiplier": 0.5, "toughnessMultiplier": 0 },
+    "speed":      { "base": -2.0, "hardnessMultiplier": 0,   "toughnessMultiplier": 0 },
+    "durability": { "base": 80,   "hardnessMultiplier": 5,   "toughnessMultiplier": 2 }
+  },
+  "recipes": [
+    { "ingredients": [ {}, { "item": "minecraft:amethyst_shard", "count": 2 }, {} ] }
+  ]
+}
+```
+
+这样就得到 id `yourmod:standard_blade/mythril`，插进任何接受 `type: attack` + `mount: tang`
+的刀身槽即可。**贴图不写也能用**——缺贴图会回落原版缺失贴图并记一条 ERROR，不会崩游戏。
+
+## 类型定义（`part_type`）
+
+本模组真实的两个定义，照抄即可用。**刃** `standard_blade.json`：
+
+```json
+{
+  "data": {
+    "type": "attack",
+    "mount": "tang",
+    "weight": "middle"
+  },
+  "position": {
+    "x": 5,
+    "y": 10
+  },
   "layer": 900,
-  "combat": { "reach": 0.0, "knockback": 0.0 },
-  "mainHandUse": { "behavior": "cwc:block_use" },
-  "offHandUse":  { "behavior": "cwc:swing_use", "hud": "cwc:crosshair_bar" },
-  "attack":      { "behavior": "cwc:sweep_attack", "hud": "cwc:crosshair_bar" },
-  "disableOffHand": false,
+  "combat": {
+    "reach": 0.0,
+    "knockback": 0.0
+  },
+  "attack": {
+    "behavior": "cwc:sweep_attack",
+    "hud": "cwc:crosshair_bar"
+  },
+  "mainHandUse": {
+    "behavior": "cwc:block_use"
+  },
   "slots": [
     {
       "name": "slot.cwc.guard",
-      "constraint": { "type": ["guard"], "weight": ["light", "middle"] },
-      "position": { "x": 6, "y": 9 },
-      "priority": { "mainHandUse": 100, "attack": 100 }
+      "constraint": {
+        "type": ["guard"],
+        "weight": ["light", "middle"]
+      },
+      "position": {
+        "x": 6,
+        "y": 9
+      }
+    }
+  ]
+}
+```
+
+**双手手柄** `two_handed_sword_handle.json`——注意 `data` 为空（角色 = `handle_part`）、
+`disableOffHand` 为 true、刀身槽的 `priority` 给了三个字段各 100，还有 `offset` 与 `scale`：
+
+```json
+{
+  "data": {},
+  "layer": 1000,
+  "disableOffHand": true,
+  "attack": {
+    "behavior": "cwc:strike_attack",
+    "hud": "cwc:crosshair_bar"
+  },
+  "offset": {
+    "x": -5,
+    "y": -5
+  },
+  "slots": [
+    {
+      "name": "slot.cwc.blade",
+      "constraint": {
+        "type": ["attack"],
+        "mount": ["tang"],
+        "weight": ["middle", "heavy"]
+      },
+      "position": {
+        "x": 10,
+        "y": 5
+      },
+      "scale": {
+        "speed": 0.5
+      },
+      "priority": {
+        "mainHandUse": 100,
+        "offHandUse": 100,
+        "attack": 100
+      }
+    },
+    {
+      "name": "slot.cwc.pommel",
+      "constraint": {
+        "type": ["pommel"],
+        "weight": ["light", "middle", "heavy"]
+      },
+      "position": {
+        "x": 2,
+        "y": 13
+      }
     }
   ]
 }
@@ -61,7 +215,7 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 | `data` | 否 | 自由的字符串键值对。**它是槽位约束匹配的对象**，也是 `role()` 的判据 |
 | `slots` | 否 | 可安装的子件槽位。空数组 `[]` = 不能接收其他零件 |
 | `position` | 否 | 本类型贴图上的安装点，默认 `(0,0)`，见下方「锚点对齐」 |
-| `layer` | 否 | 渲染层优先级，**越大越靠上**（底座永远最底），默认 0 |
+| `layer` | 否 | 渲染层优先级，**升序合成：值越大越后画、越靠上**，默认 0。**底座不特殊**——根节点用的就是自己类型的 `layer`，不会被强制置底。本模组取 900（四种刃）/ 1000（两种手柄）/ 1100（配重）/ 1200（镡），即"刃在最下、镡在最上" |
 | `combat` | 否 | 攻击几何：`reach`（交互距离加成）/ `knockback`。普攻方式不在这里，见 `attack` |
 | `offset` | 否 | 整体贴图平移（像素），改变握持位置 |
 | `mainHandUse` | 否 | **这件物品在主手时**右键做什么，见「行为与 HUD」 |
@@ -76,10 +230,10 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 三个字段的取值都是同一个形状：**`behavior` 必填、`hud` 可省**。
 
 ```json
-"offHandUse": { "behavior": "cwc:swing_use", "hud": "cwc:crosshair_bar" }
+{ "offHandUse": { "behavior": "cwc:swing_use", "hud": "cwc:crosshair_bar" } }
 ```
 
-**两个键分工不同**（作者 2026-09-27 定）：`behavior` 决定**做什么**、并给出 HUD 的**读数**；
+**两个键分工不同**：`behavior` 决定**做什么**、并给出 HUD 的**读数**；
 `hud` 只决定**画成什么样**（一个样式），**不含来源**。
 
 - `behavior` 是**代码侧注册的行为 id**（`BehaviorRegistry`）。本模组内建：
@@ -105,7 +259,7 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 - **读数由行为给、画法由 `hud` 选**：显示什么（进度 + 高亮）由胜出的行为回答
   （`WeaponBehavior#hudReadout`，默认实现就是两条指示器要的读法：主手读玩家攻速条、副手读它自己的
   独立冷却，高亮 = 这只手能不能打到；**主手那条**再 AND 一条原版条件——这件物品的攻速延迟必须 > 5，
-  于是空手与空手柄永远不亮满格图标，与 `Gui.java:465` 一致）。所以样式挂在哪个字段上都说得通，
+  于是空手与空手柄永远不亮满格图标，与原版攻击指示器的判定一致）。所以样式挂在哪个字段上都说得通，
   "挂错字段"不是语义错误。
 
 - **`behavior` 与 `hud` 是同一笔声明里的两个键**：行为按优先级胜出，**样式就是胜出那笔自己写的那个**
@@ -129,14 +283,14 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 两者相与**决定，不是任何一方单独说了算。
 
 **结果就写在武器自己的 tooltip 上**（**裸手柄也照同一条规则显示**——空手柄在每一条游戏路径上都与装配后
-同等对待，没有"装没装零件"的分支；2026-09-27 前这里有个"装配之后才出现"的特判，已拆）：
+同等对待，没有"装没装零件"的分支）：
 有胜者的字段各占一行（`主手右键：格挡`），没声明的字段不出现，并列的字段用**红字**说明是哪两个槽在抢
 （`攻击方式：刃槽 / 副刃槽 的优先级同为 100，该动作不会生效`）。这是"这件武器到底能做什么"以及
 "某个动作为什么没反应"的唯一界面入口——装配台底座槽、背包、JEI 看到的是同一份。
 
 **三个旧键已废弃**：`twoHanded`、`offhandAttack`、`combat.style` 写了会让**那一条类型定义加载失败**，
-并在日志里报出替代写法（留着它们的唯一目的就是报错——DFU 会静默忽略不认识的键，那意味着旧数据照常加载
-却行为消失，比加载失败危险得多）。替代关系：
+并在日志里报出替代写法。留着它们的唯一目的就是报错——原版的数据修复层（DataFixerUpper，DFU）
+会**静默忽略不认识的键**，那意味着旧数据照常加载、行为却没了，比加载失败危险得多。替代关系：
 
 | 旧键 | 改成 |
 |---|---|
@@ -148,7 +302,7 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 且**只在"有没有"这个意义上生效**——两只手都拿着双手武器，副手也只被占用一次（下沉一次，不会叠）。
 （旧 `twoHanded` 同时管"主手右键格挡"和"屏蔽副手"两件事，所以它拆成了上表那两笔。）
 
-**"只吃副手"是单向的**（2026-09-27 定，与更早那版相反）：双手武器**不论拿在哪只手上**，被禁用的都是
+**"只吃副手"是单向的**（有意为之）：双手武器**不论拿在哪只手上**，被禁用的都是
 **副手**，主手永远不受影响。所以"副手攥着一把双手柄把主手废掉、且看不出原因"那种情形不存在了。
 
 ### `data` 与角色
@@ -156,8 +310,8 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 - **不空** → 角色 `part`（可被插入别的零件）
 - **为空** → 角色 `handle_part`（底座，接收其他零件、属性聚合终点）
 
-判据是**空不空**，不是 id 里有没有 "handle" 字样（旧实现用过字符串包含判断，已废除——加一个
-`cwc:handle_guard` 之类就会产出"HANDLE_PART 物品 + 非手柄定义"的怪东西）。
+判据是**空不空**，不是 id 里有没有 "handle" 字样——否则加一个 `cwc:handle_guard` 之类
+就会产出"HANDLE_PART 物品 + 非手柄定义"的怪东西。
 
 `data` 中的每个键值对用于槽位匹配：候选零件插入槽位时，`constraint` 里声明的每个 key，
 零件 `data` 中对应的值必须在该 key 允许的数组内。
@@ -177,7 +331,12 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 
 ### 锚点对齐
 
-`position` 是**贴图像素坐标**（x 向右、y 向下，0–15），用于装配渲染把子件贴图对齐到父件槽位：
+`position` 是**贴图像素坐标**（x 向右、y 向下），用于装配渲染把子件贴图对齐到父件槽位。
+取值范围**由该类型的精灵图尺寸决定**，不是固定的 0–15——精灵图 16×16 时是 0–15，32×32 时就是 0–31
+（本模组的 `half_sword` / `long_blade` 用 32×32，安装点的 y 分别是 26 / 25）。
+代码**不做范围校验**：安装点落在自己那张精灵图之外不会报错，只会让贴图错位。
+
+对齐公式：
 
 ```
 子件渲染偏移 = 槽位安装点 − 子件类型安装点        （单位：贴图像素，渲染时 ÷16）
@@ -197,12 +356,17 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 
 ### 渲染
 
-物品渲染由 `AssembledWeaponRenderer`（BEWLR）完成：**贴图路径由 id 自动推导，无需在 JSON 里声明**
-（见下「贴图」）。渲染时把底座 + 所有层级零件按 `layer` 升序**在 CPU 上合成到一张贴图**，
-按装配内容缓存为 `DynamicTexture`，实际只画这一张合成贴图的正面/背面/边缘面。
-合成缓存的上限与释放见该类常量；F3+T 会清缓存。
+物品渲染由 `AssembledWeaponRenderer`（BlockEntityWithoutLevelRenderer，BEWLR）完成：
+**贴图路径由 id 自动推导，无需在 JSON 里声明**（见下「贴图」）。渲染时把底座 + 所有层级零件
+按 `layer` 升序**在 CPU 上合成到一张贴图**，按装配内容缓存为 `DynamicTexture`，
+实际只画这一张合成贴图的正面/背面/边缘面。
+
+合成缓存是一张按装配内容索引的 LRU 表，上限是 `AssembledWeaponRenderer` 里的
+`MAX_COMPOSITES = 256`；超出后淘汰最久未用的并释放其纹理。F3+T 会把合成缓存与零件图缓存一起清空。
 
 ## 零件定义（`part`）
+
+本模组的铁标准刃 `standard_blade/iron.json`：
 
 ```json
 {
@@ -210,7 +374,7 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
   "type": "coldweaponcraftsmanship:standard_blade",
   "data": {
     "damage":     { "base": 2, "hardnessMultiplier": 0.5, "toughnessMultiplier": 0 },
-    "speed":      { "base": 0, "hardnessMultiplier": 0, "toughnessMultiplier": 0 },
+    "speed":      { "base": -2.4, "hardnessMultiplier": 0, "toughnessMultiplier": 0 },
     "durability": { "base": 50, "hardnessMultiplier": 5, "toughnessMultiplier": 2 }
   },
   "recipes": [
@@ -222,7 +386,7 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 | 字段 | 必填 | 说明 |
 |---|---|---|
 | `parser` | **是** | 数据形状的分派键，见下表 |
-| `type` | **是** | 所属类型的注册表 id。**显式字段**——旧版靠"去掉 id 最后一个点号"推导，那等于把目录结构变成语义，已废除 |
+| `type` | **是** | 所属类型的注册表 id。**显式字段**，不从 id 推导——否则目录结构会变成语义 |
 | `data` | 否 | 形状随 `parser` 而变 |
 | `recipes` | 否 | 配方列表，每条是一串 ingredient。制造台的 3×3 输入格按**无序**匹配——材料放哪一格都行，只看"够不够"；`count` 算的是**物品总数**（一堆 4 个放一格也算数，不是原版那种一格子一件）。**空对象 `{}` 表示无这项材料要求**（不能写 `null`，DFU 的列表不接受 null 元素） |
 
@@ -237,7 +401,6 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 **⚠ 两个乘数目前完全不参与计算**：数值只取 `base`。它们属于**尚未实现的「锻造」系统**——
 所有材料的平均值与范围相同，材料差异由锻造的系数与常数表达，所以各零件的乘数一致是**刻意的**，
 不是复制粘贴痕迹（`speed` 与材料无关、取决于武器几何，按设计就填 0）。改它们不会有效果。
-详见 `docs/bugs.md` 的「数据设计缺口」。
 
 ### 属性键（`data` 里被读作数值的键）
 
@@ -267,8 +430,8 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 - 数值直接使用；金属公式对象只取 `base`；**缺失的属性按 0 计**（如镡只写 `weight` + `block`）
 - 聚合时按**该零件所在槽位的 `scale`** 加权累加
 - **根节点（底座）自身也参与聚合**，权重按 1（它没有"所在槽位"）。所以手柄的零件定义写了数值就直接
-  算进这把武器——**没装任何子件时同样生效、也显示在 tooltip 上**（2026-09-27 起；那之前裸手柄的数值
-  被"没装零件就没有属性"的过滤丢掉，属于"写了不生效、也不报错"）
+  算进这把武器——**没装任何子件时同样生效、也显示在 tooltip 上**（不留"没装零件就没有属性"的特判：
+  那种写法会变成"写了不生效、也不报错"）
 - **属性不写进物品组件，而是每次查询时从装配树现算**（`CwcWeapon.getDefaultAttributeModifiers`）。
   唯一被物化的是**耐久上限**（它推导不了：`ItemStack.getMaxDamage()` 只读组件，`Item` 拦不住），
   由装配台写入 + 背包内每 tick 自愈，保证非装配台路径产出的武器也有耐久
@@ -312,8 +475,9 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 | `alloy` | netherite | 下界合金的明暗比其余材质细（原版 `netherite_sword` 本身就与 `iron_sword` 画法不同），共用会把别的材质撑出重复项 |
 
 分组的唯一硬要求是**同组各材质的"同色分区"必须一致**——即"哪两个像素是同一个颜色"这件事要完全相同。
-不一致时只能退到最细共同分区（只要有一个材质把那两个像素画成异色就得拆槽），
-于是把两者画成同色的材质会在调色板里出现重复色值。见 `tmp/gen_part_sprites.py` 的说明。
+不一致时只能退到**最细共同分区**：只要有一个材质把那两个像素画成异色，就得把它们拆成两个槽，
+于是把这两像素画成同色的那个材质，调色板里会出现重复色值。这是无损表达的必然代价，
+不是数据写错了。
 
 **调色板** `cwc/palette/<类型>/<材质>.json`：
 
@@ -352,12 +516,8 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
 - **命名空间跟随 id 的命名空间**，扩展包的贴图走自己的资源命名空间，与本模组互不干扰。
 - 类型 id 没有自己的贴图——图标取该类型下 id 最小的零件的贴图作代表。
 - 两份 JSON 任一缺失、格式错、下标越界、颜色串非法，都**记一条 ERROR 并回落原版缺失贴图，不崩游戏**。
-- 每个零件画好的图**各留一份缓存**；F3+T 时连同武器合成缓存一起清空，下次用到时重新画。
-- 同一条精灵图被多个材质共用时，**细分到各材质的最小共同分区**：某个材质把两个像素画成同色、
-  另一个材质把它们画成异色时，这两像素必须拆成两个槽，于是前者的调色板里会出现重复色值。
-  这是无损表达的必然代价（见 `tmp/gen_part_sprites.py` 的说明）。
-- 现有的 56 份调色板 + 24 条精灵图由 `tmp/gen_part_sprites.py` 从旧 PNG 机械生成，
-  脚本内置**往返自检**（画回来与原 PNG 逐像素比对）。
+- 每个零件画好的图**各留一份缓存**（这份没有上限，与武器合成缓存不同）；
+  F3+T 时连同武器合成缓存一起清空，下次用到时重新画。
 
 ## 从加载到装配（代码侧流程）
 
@@ -374,14 +534,21 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
   └─ 右侧列表按类型分组列出零件 → 选中一类 → 往 3×3 里摆材料
      └─ 在该类型的各材质变体里找**配方被格子满足**的那一条（无序、按物品总数）→ 输出槽出那一件
         └─ 同时满足多条 = 配方冲突 → 左侧轮换按钮点亮，点击在候选间切换
-           └─ 取出时从**格子**扣材料，产物带 PART_IDENTITY；关界面时格子里的东西还给玩家
+           └─ 取出时从**格子**扣材料，产物带 `coldweaponcraftsmanship:part_identity`
+              （记下它是哪个零件）；关界面时格子里的东西还给玩家
 
 装配台方块 → AssemblingMenu
-  └─ 底座槽放零件（任意带 PART_IDENTITY 的零件，以便先拼子装配体）
+  └─ 底座槽放零件（任意带 `part_identity` 的零件，以便先拼子装配体）
      └─ 按底座类型的 slots 显示槽位行，放入时用 SlotDef.accepts 校验约束
-        └─ 变更写回 ASSEMBLED_SLOTS（值类型 PartNode：零件 id + 递归子节点）
+        └─ 变更写回 `coldweaponcraftsmanship:assembled_slots`
+           （值类型 PartNode：零件 id + 递归子节点）
            └─ 同步耐久上限；属性在查询时从装配树现算
 ```
+
+这两个都是**物品数据组件**（Item DataComponent，注册在 `registry/CwcDataComponents`）：
+`coldweaponcraftsmanship:part_identity`（字符串）与 `coldweaponcraftsmanship:assembled_slots`
+（`Map<String, PartNode>`）。给任意物品写上它们，就会被本模组按零件 / 装配体对待——
+这是让自定义物品接入装配系统的入口。
 
 `PartRegistry` 是一层**关卡作用域缓存**而非独立数据表：内容始终是原版注册表本身（不复制、不解析），
 这样拿不到 `RegistryAccess` 的查询点（如属性推导）也能查到定义。
@@ -397,20 +564,24 @@ PartDef ironBlade = parts.get(ResourceLocation.parse("coldweaponcraftsmanship:st
    `ParserRegistry.register("yourmod:foo", codec)` 注册，然后让零件 JSON 的 `"parser"` 指向它。
 4. **读零件定义**：直接用 `registryOrThrow(CwcRegistries.PART)`。
    `AssemblyTree` 提供"从装配树算全部派生量"的现成入口，`PartDef.data()` 直接可读。
-5. **加自己的行为**：实现 `WeaponBehavior`（**无状态单例**），在**任何数据包被解析之前**
-   （模组构造器 / 模组总线事件里）用 `BehaviorRegistry.register(...)` 注册，然后让零件/类型的 JSON
-   把 `behavior` 指向你的 id。`fields()` 声明它能挂在哪些字段上——挂错字段会让那条数据加载失败。
-   需要跨 tick 记忆的动作（蓄力弓那类）返回一个 `BehaviorMachine`。
+5. **加自己的行为**：实现 `WeaponBehavior`（`com.funnyb.cwc.combat.behavior`，**无状态单例**），
+   在**任何数据包被解析之前**（模组构造器 / 模组总线事件里）用 `BehaviorRegistry.register(...)` 注册，
+   然后让零件/类型的 JSON 把 `behavior` 指向你的 id。`fields()` 声明它能挂在哪些字段上——
+   挂错字段会让那条数据加载失败。除 `id()` 与 `fields()` 外的方法都有 `default` 实现，按需覆盖即可。
+   ⚠ 接口里还有 `machine()` 与配套的 `BehaviorMachine`，本意是给"跨 tick 记忆"的动作（蓄力弓那类）用，
+   但**目前没有任何代码调用它**——现有五个行为都不需要，这条路径尚未接通，别照着它设计。
 6. **加自己的 HUD 样式**：实现 `HudStyle`（客户端专用，可以自由用 `GuiGraphics`）——它的入参只有
    **进度**与**高亮**两个数（读数由行为给，样式不自己去解析物品），在客户端初始化阶段
    `HudStyleRegistry.register(...)`，让 JSON 的 `hud` 指向它。几何/翻转那类现成的画法在
    `CrosshairBar` 里，直接用，别重写。
    要改的是"显示什么"而不是"画成什么样"时，覆盖行为的 `hudReadout`（通用侧），别动样式。
 7. **加自己的攻击方式**：`attack` 字段指向的行为覆盖 `strikeStyle` / `canHit` / `hasAnyTarget` / `strike`
-   四个方法即可，具体零件（目标校验、伤害例程、范围几何、无敌帧豁免）从 `CwcCombat` 的公开入口取。
+   这四个**是 `WeaponBehavior` 上的方法**（都是 `default`），默认实现分别转发给 `CwcCombat` 的
+   `strikeStyle` / `canHitSingle`·`canHitSweep` / `hasSweepTarget` / `strikeSingle`·`strikeSweep`。
+   要自己实现时，目标校验、伤害例程、范围几何、无敌帧豁免都能从 `CwcCombat` 的公开静态入口取；
+   它另有 `resolveReach`、`pickAttackTargetId`、`hasAnyAttackableTarget` 等现成件可用。
 
 ## 相关
 
 - 零件装在哪、谁接受谁：`AssemblyTree` 与 `PartTypeDef.SlotDef.accepts`
 - 行为如何被选出（五条规则）：`BehaviorResolver` 的类注释
-- 数值/材料的设计缺口（两个乘数为何不生效）：`docs/bugs.md` 的「数据设计缺口」一节
