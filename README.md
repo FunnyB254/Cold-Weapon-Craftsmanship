@@ -4,13 +4,15 @@
 
 ## AI 披露
 
-本项目的代码**大批量由 AI 生成**。作者的角色在于设计与判断：
+本项目的代码**大批量由 AI 生成**。
 
-- **架构与玩法由作者设计**——装配树的层级、行为系统的形状、数据包注册表的规则，以及武器手感与战斗数值的取舍，都是作者定的，AI 负责把它们写出来。
-- **绘图由作者提供模板**——精灵图的形状模板出自作者之手，AI 在其基础上着色与铺量。
-- **测试由作者承担**——进游戏实测、判断手感与战斗表现的始终是作者。AI 只能在代码层面协助构造用例、复现问题与核对行为，它没法替你玩这个游戏。
+作者为本项目做出的贡献：
 
-AI 是执行者，设计与取舍在作者。
+- 设计了项目的架构与玩法。
+- 绘制了精灵图的形状模板，AI 在其基础上着色。
+- 负责了游戏内测试。
+
+作者承担了全部 API 开销，并对项目的代码与文档质量负责。
 
 ## 支持版本
 
@@ -112,12 +114,8 @@ AI 是执行者，设计与取舍在作者。
 
 | 部分 | 许可证 | 全文 |
 |---|---|---|
-| 精灵图与调色板（[sprite](src/main/resources/assets/coldweaponcraftsmanship/cwc/sprite/)、[palette](src/main/resources/assets/coldweaponcraftsmanship/cwc/palette/)） | All Rights Reserved | [LICENSE_TEXTURES](LICENSE_TEXTURES) |
-| 其余部分（代码、数据定义、语言文件等） | MIT | [LICENSE_CODE](LICENSE_CODE) |
-
-**严禁二次分发精灵图与调色板。** 这些资产不允许被重新上传、打包进其他项目，或以任何形式再分发。
-
-本项目使用 **Mojang 的官方映射**。精灵图与调色板中的大多数**重度基于 Minecraft 自身的资产**——在 Minecraft 模组开发环境之外使用其中任何内容是一个危险的想法，请不要这么做。
+| 精灵图与调色板<br>（`/src/main/resources/assets/coldweaponcraftsmanship/cwc/sprite/`、<br>`/src/main/resources/assets/col| 精灵图与调色板（[sprite](src/main/resources/assets/coldweaponcraftsmanship/cwc/sprite/)、[palette](src/main/resources/assets/coldweaponcraftsmanship/cwc/palette/)） | All Rights Reserved | [LICENSE_TEXTURES](LICENSE_TEXTURES) |
+项目使用 **Mojang 的官方映射**。精灵图与调色板中的大多数**重度基于 Minecraft 自身的资产**——在 Minecraft 模组开发环境之外使用其中任何内容是一个危险的想法，请不要这么做。
 
 ## 反馈与社区
 
