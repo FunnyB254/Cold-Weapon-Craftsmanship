@@ -114,6 +114,8 @@
 
 作为扩展作者添加零件、类型或行为时，格式规格见 [docs/part-format.md](docs/part-format.md)。
 
+> 🚧 **尚未完成**：该文档目前只有中文版，英文版待补。
+
 ## 许可证
 
 本模组采用**混合许可证**，整体 SPDX 表达式为 `MIT AND LicenseRef-All-Rights-Reserved`：
@@ -254,7 +256,9 @@ Please read [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) before contributi
 
 > 🚧 **Not yet available**: CONTRIBUTING.md is currently empty; those conventions are still to be written. Until then, go by the existing code and [docs/part-format.md](docs/part-format.md).
 
-If you are an add-on author adding parts, types or behaviors, the format specification is in [docs/part-format.md](docs/part-format.md) — **written in Chinese**.
+If you are an add-on author adding parts, types or behaviors, the format specification is in [docs/part-format.md](docs/part-format.md).
+
+> 🚧 **Not yet available**: this document is Chinese-only for now; an English version is still to come.
 
 ## License
 
