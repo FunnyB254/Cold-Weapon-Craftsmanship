@@ -111,6 +111,7 @@
   "tooltip.cwc.behavior.attack": "Attack",
   "tooltip.cwc.behavior.conflict": "%s have the same priority %s — this action will not work",
   "tooltip.cwc.slot_requires": "Detailed Requirements:",
+  "tooltip.cwc.slot_scale": "Stat Multipliers:",
   "tooltip.cwc.bullet": " - ",
   "tooltip.cwc.colon": ": ",
   "tooltip.cwc.separator": "/",

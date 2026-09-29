@@ -9,6 +9,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.WidgetSprites;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.component.ItemAttributeModifiers;
 
 import java.util.List;
 import java.util.Map;
@@ -315,32 +316,76 @@ public class SlotList {
     }
 
     /**
-     * 构建详情控件的悬停 tooltip——把 constraint 转为多行可读文本。
-     * 第一行标题，之后每行一条约束：" - 安装方式：铤装"。
+     * 会被槽位 {@code scale} 加权的属性——**与 {@link com.funnyb.cwc.crafting.AssemblyTree} 的聚合逐条对应**：
+     * 那里只对 damage / speed / durability 乘槽位权重，block 明写"不走槽位权重（裸加）"。
+     * 所以这里也不列 block —— 显示了却不生效，比不显示更坏。
+     */
+    private static final List<String> WEIGHTED_ATTRIBUTES = List.of("damage", "speed", "durability");
+
+    /**
+     * 构建详情控件的悬停 tooltip——两段，各自有标题、各自可能不出现：
+     * <pre>
+     * 特征需求：
+     *  - 安装方式：铤装
+     * 属性倍率：
+     *  - 攻速：50%
+     * </pre>
+     * 上段是 constraint（槽位收什么），下段是 scale（收进来的零件打几折）。
+     * 返回空表 = 这个槽位没什么可说的，调用方据此不弹 tooltip。
      */
     public List<Component> infoTooltip(Row row) {
-        var constraint = row.slotDef().constraint();
+        var slotDef = row.slotDef();
         java.util.List<Component> lines = new java.util.ArrayList<>();
-        if (constraint == null || constraint.isEmpty()) return lines;
-
-        lines.add(Component.translatable("tooltip.cwc.slot_requires"));
 
         String bullet = Component.translatable("tooltip.cwc.bullet").getString();
         String colon = Component.translatable("tooltip.cwc.colon").getString();
         String separator = Component.translatable("tooltip.cwc.separator").getString();
-        for (Map.Entry<String, List<String>> entry : constraint.entrySet()) {
-            String key = entry.getKey();
-            StringBuilder sb = new StringBuilder();
-            sb.append(bullet);
-            sb.append(Component.translatable(key + ".cwc").getString());
-            sb.append(colon);
-            var values = entry.getValue();
-            if (values == null) continue;      // JSON 写 "constraint": { "weight": null } 时值为 null，跳过
-            for (int i = 0; i < values.size(); i++) {
-                if (i > 0) sb.append(separator);
-                sb.append(Component.translatable(key + ".cwc." + values.get(i)).getString());
+
+        var constraint = slotDef.constraint();
+        if (constraint != null && !constraint.isEmpty()) {
+            lines.add(Component.translatable("tooltip.cwc.slot_requires"));
+            for (Map.Entry<String, List<String>> entry : constraint.entrySet()) {
+                String key = entry.getKey();
+                StringBuilder sb = new StringBuilder();
+                sb.append(bullet);
+                sb.append(Component.translatable(key + ".cwc").getString());
+                sb.append(colon);
+                var values = entry.getValue();
+                if (values == null) continue;      // JSON 写 "constraint": { "weight": null } 时值为 null，跳过
+                for (int i = 0; i < values.size(); i++) {
+                    if (i > 0) sb.append(separator);
+                    sb.append(Component.translatable(key + ".cwc." + values.get(i)).getString());
+                }
+                lines.add(Component.literal(sb.toString()));
             }
-            lines.add(Component.literal(sb.toString()));
+        }
+
+        java.util.List<Component> weights = weightedLines(slotDef.scale(), bullet, colon);
+        if (!weights.isEmpty()) {
+            lines.add(Component.translatable("tooltip.cwc.slot_scale"));
+            lines.addAll(weights);
+        }
+        return lines;
+    }
+
+    /**
+     * 槽位倍率那几行——只列**不为 1** 的项：1 是"全量计入"，也就是不声明时的默认值，
+     * 列出来只是噪音（数据里写 {@code "damage": 1.0} 与不写完全等价）。
+     * <p>
+     * 顺序固定为 damage → speed → durability（不跟 JSON 里的键序走），与零件数值浮窗的行序一致。
+     * 百分比复用原版属性 tooltip 的 {@code "#.##"} 格式器，所以 0.5 显示成"50%"、0.3 是"30%"。
+     */
+    private static java.util.List<Component> weightedLines(Map<String, Double> scale,
+                                                           String bullet, String colon) {
+        java.util.List<Component> lines = new java.util.ArrayList<>();
+        if (scale == null) return lines;
+        for (String attribute : WEIGHTED_ATTRIBUTES) {
+            Double value = scale.get(attribute);
+            if (value == null || value == 1.0) continue;
+            lines.add(Component.literal(bullet
+                    + Component.translatable("tooltip.cwc.stat." + attribute).getString()
+                    + colon
+                    + ItemAttributeModifiers.ATTRIBUTE_MODIFIER_FORMAT.format(value * 100.0) + "%"));
         }
         return lines;
     }

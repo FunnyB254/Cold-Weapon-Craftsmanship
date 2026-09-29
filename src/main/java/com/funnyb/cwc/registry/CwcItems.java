@@ -2,6 +2,7 @@ package com.funnyb.cwc.registry;
 
 import com.funnyb.cwc.ColdWeaponCraftsmanship;
 import com.funnyb.cwc.item.CwcWeapon;
+import com.funnyb.cwc.item.PartItem;
 
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
@@ -27,9 +28,9 @@ public class CwcItems {
     public static final DeferredItem<BlockItem> ASSEMBLY_TABLE_ITEM =
             ITEMS.registerSimpleBlockItem(CwcBlocks.ASSEMBLY_TABLE);
 
-    /** 刃/镡/饰类零件——可被插入其他零件 */
+    /** 刃/镡/饰类零件——可被插入其他零件。tooltip 列自己的身份特征，见 {@link PartItem} */
     public static final DeferredItem<Item> PART = ITEMS.register("part",
-            () -> new Item(new Item.Properties().stacksTo(1)));
+            () -> new PartItem(new Item.Properties().stacksTo(1)));
 
     /** 手柄类零件——接收其他零件，作为组装武器的属性聚合终点 */
     public static final DeferredItem<Item> HANDLE_PART = ITEMS.register("handle_part",
