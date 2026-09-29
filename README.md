@@ -98,7 +98,7 @@
 
 ## 贡献
 
-参与开发前请先读 [CONTRIBUTING.md](CONTRIBUTING.md)。以下行为**必须**遵从其中的约定：
+参与开发前请先读 [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md)。以下行为**必须**遵从其中的约定：
 
 - 提交 Pull Request 时的代码风格与提交信息格式
 - 数据定义（零件、类型、贴图）的写法

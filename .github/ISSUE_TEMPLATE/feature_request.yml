@@ -1,0 +1,50 @@
+name: 功能建议
+description: 提出一个新功能或改动的想法
+title: "[建议] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先讲**想解决什么问题**，再谈具体方案——方案可以商量，问题不会。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 想解决什么问题
+      description: 现在的体验哪里不对、缺了什么？尽量描述场景，而不是直接给方案。
+      placeholder: 例如：每次做同一把刀都要从头选一遍零件，重复劳动很烦
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 设想的方案
+      description: 如果已经有想法就写在这里；没有也可以只填上一栏。
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 考虑过的替代方案
+      description: 还有别的做法吗？为什么不如上面那个？
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: 补充信息
+      description: 参考的其它模组、截图、相关的数据包写法等。
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我搜过现有 issue，没有重复
+          required: true

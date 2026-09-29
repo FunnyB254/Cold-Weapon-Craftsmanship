@@ -1,0 +1,102 @@
+name: Bug 报告
+description: 报告一个可复现的问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。**本项目没有自动化测试**，所以「日志」与「复现步骤」是定位问题的唯一手段——
+        缺了这两项的报告通常没法处理。
+
+  - type: input
+    id: mc-version
+    attributes:
+      label: Minecraft 版本
+      placeholder: "1.21.1"
+    validations:
+      required: true
+
+  - type: input
+    id: neoforge-version
+    attributes:
+      label: NeoForge 版本
+      placeholder: "21.1.241"
+    validations:
+      required: true
+
+  - type: input
+    id: mod-version
+    attributes:
+      label: 本模组版本
+      description: 见模组列表里「冷兵器工艺」的版本号，或 jar 文件名
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: 出问题的环境
+      options:
+        - 单人游戏
+        - 多人游戏（我是服主）
+        - 多人游戏（我是客户端玩家）
+    validations:
+      required: true
+
+  - type: textarea
+    id: other-mods
+    attributes:
+      label: 装了哪些其它模组
+      description: 请务必回答「只装本模组时是否仍然出现」——这一步能排除绝大部分模组冲突。
+      placeholder: |
+        其它模组（可附导出的列表文件）：
+        只装本模组时是否复现：是 / 否 / 未测试
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 请写到「照着做就能再次出现」的程度。
+      placeholder: |
+        1. 打开装配台
+        2. 放入……
+        3. 右键……
+        4. 结果……
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 你认为本来应该发生什么？
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 实际发生了什么？有截图或视频请一并附上。
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志
+      description: |
+        请附上 `logs/latest.log`；若发生崩溃，另附 `crash-reports/` 里对应的那份文件。
+        可直接把文件拖进这个输入框上传。
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我附上了日志与复现步骤
+          required: true
