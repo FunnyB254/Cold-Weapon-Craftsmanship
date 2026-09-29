@@ -1,4 +1,8 @@
+<a name="zh"></a>
+
 # Cold Weapon Craftsmanship · 冷兵器工艺
+
+**简体中文** | [English](#en)
 
 在装配台上把零件拼成一把冷兵器。零件（刃、镡、配重、手柄）与材质（木、石、铜、铁、金、钻石、下界合金）可以自由组合，装出来的武器拥有自己的伤害、攻速与耐久；它能在战斗中做什么——格挡、横扫、直击、副手短刀——同样由数据声明。零件定义、类型定义与贴图都是数据包驱动的，扩展包可以添加自己的零件、类型乃至新的战斗行为，而不必碰 Java 代码。
 
@@ -135,3 +139,145 @@
 | Bilibili | https://space.bilibili.com/1159006393 |
 | Modrinth | 尚未注册 |
 | CurseForge | 尚未注册 |
+
+---
+
+<a name="en"></a>
+
+# Cold Weapon Craftsmanship
+
+[简体中文](#zh) | **English**
+
+Assemble a cold weapon from parts at the assembly table. Parts (blade, guard, pommel, handle) and materials (wood, stone, copper, iron, gold, diamond, netherite) combine freely, and the weapon you build gets its own damage, attack speed and durability. What it can do in combat — block, sweep, strike, offhand knife — is declared in data as well. Part definitions, type definitions and textures are all datapack-driven, so an add-on can add its own parts, types, or even new combat behaviors without touching Java code.
+
+## AI disclosure
+
+**The code in this project is largely AI-generated.**
+
+What the author contributed to the project:
+
+- Designed the architecture and gameplay.
+- Drew the shape templates for the sprites; the AI colored them in.
+- Handled the in-game testing.
+
+The author covers all API costs and takes responsibility for the quality of the code and documentation.
+
+## Supported versions
+
+### Currently supported
+
+| Minecraft | Loader | Status |
+|---|---|---|
+| 1.21.1 | NeoForge 21.1.241 or newer | Early development (`0.1.0-alpha.1`) |
+
+### Planned
+
+There is **no schedule** for the versions below — they depend on how content work progresses. The order does not imply a commitment to sequence.
+
+| Minecraft | Loader | Status |
+|---|---|---|
+| 1.21.1 | Fabric | Planned |
+| 26.1.2 | NeoForge / Fabric | Planned |
+| 1.20.1 | Forge / Fabric | Planned |
+
+**Versions below 1.20.1 will not be supported.**
+
+## Dependencies
+
+### Required
+
+| Dependency | Version |
+|---|---|
+| Minecraft | 1.21.1 |
+| NeoForge | 21.1.241 or newer |
+
+### Optional
+
+| Dependency | Version | Purpose |
+|---|---|---|
+| JEI | 19 or newer | Lets JEI's screen properly avoid this mod's slot areas. Works fine without it |
+
+## Client and server
+
+**Both sides must have this mod installed.** Blocks, menus and network packets are registered server-side; rendering, HUD and configuration are client-side. Installing it on only one side causes connection failures or display problems.
+
+## Compatibility
+
+| Mod | Status |
+|---|---|
+| JEI | ✅ Supported (as an optional dependency, for screen-layout interop) |
+| Jade | ✅ Compatible |
+| Sodium | ✅ Compatible |
+| Lithium | ✅ Compatible |
+| OptiFine | ❌ Not supported |
+
+This mod **does not support OptiFine** — use a modern rendering optimization mod such as Sodium instead.
+
+## Installation
+
+1. Install Minecraft 1.21.1 and NeoForge 21.1.241 or newer.
+2. Drop the mod jar into your `mods/` folder.
+3. Install it on **both** the client and the server.
+
+## Download
+
+Get the latest version from the [Releases](https://github.com/FunnyB254/Cold-Weapon-Craftsmanship/releases) page. The file is named like `coldweaponcraftsmanship-0.1.0-alpha.1.jar`.
+
+> ⚠ This is an **early development build** (`0.1.0-alpha.1`): content is still being filled in, and the public data format and gameplay will keep changing. Not recommended for long-term worlds.
+
+## Wiki
+
+> 🚧 **Not yet available**: the Wiki has not been set up; the link is a placeholder for now: https://github.com/FunnyB254/Cold-Weapon-Craftsmanship/wiki
+
+## Configuration
+
+This mod has a single **client-side** config at `config/coldweaponcraftsmanship-client.toml`. You can also edit it in-game under "Mods → Cold Weapon Craftsmanship → Config".
+
+| Option | Range | Default | Description |
+|---|---|---|---|
+| Dwell | 0–5 seconds | 1.0 | How long text waits before it starts scrolling. 0 = no dwell |
+| Scroll speed | 4–60 pixels/second | 17.0 | How fast overflowing text scrolls |
+
+These two options only affect long text that does not fit — in the **part stat tooltip** and the **assembly table slot names**. They do not change any combat values.
+
+## Modpacks
+
+You are **permitted and encouraged** to include this mod in modpacks, with no need to ask first. If you want to credit it in the pack description, just link back to this repository.
+
+## Contributing
+
+Please read [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) before contributing. The following **must** follow the conventions in it:
+
+- Code style and commit message format for pull requests
+- How data definitions (parts, types, textures) are written
+- How to verify a change
+
+> 🚧 **Not yet available**: CONTRIBUTING.md is currently empty; those conventions are still to be written. Until then, go by the existing code and [docs/part-format.md](docs/part-format.md).
+
+If you are an add-on author adding parts, types or behaviors, the format specification is in [docs/part-format.md](docs/part-format.md) — **written in Chinese**.
+
+## License
+
+This mod uses a **split license**, expressed in SPDX as `MIT AND LicenseRef-All-Rights-Reserved`:
+
+| Portion | License | Full text |
+|---|---|---|
+| Sprites and palettes ([sprite](src/main/resources/assets/coldweaponcraftsmanship/cwc/sprite/), [palette](src/main/resources/assets/coldweaponcraftsmanship/cwc/palette/)) | All Rights Reserved | [LICENSES/LicenseRef-All-Rights-Reserved.txt](LICENSES/LicenseRef-All-Rights-Reserved.txt) |
+| Everything else (code, data definitions, language files, ...) | MIT | [LICENSES/MIT.txt](LICENSES/MIT.txt) |
+
+License texts live under the [LICENSES/](LICENSES/) directory, named after their SPDX identifiers per the [REUSE specification](https://reuse.software/).
+
+**Redistributing the sprites and palettes is strictly forbidden.** These assets may not be reuploaded, bundled into other projects, or redistributed in any form.
+
+This project uses **Mojang's official mappings**. Most of the sprites and palettes are **heavily derived from Minecraft's own assets** — using any of it outside of a Minecraft mod development context is a bad idea. Please don't.
+
+This project is built on the [NeoForge MDK](https://github.com/NeoForged/MDK); the template files it provides are likewise licensed under MIT.
+
+## Feedback and community
+
+| Channel | Address |
+|---|---|
+| GitHub Issues | https://github.com/FunnyB254/Cold-Weapon-Craftsmanship/issues |
+| Bilibili | https://space.bilibili.com/1159006393 |
+| Modrinth | Not registered yet |
+| CurseForge | Not registered yet |
