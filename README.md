@@ -20,7 +20,7 @@
 
 | Minecraft | 加载器 | 状态 |
 |---|---|---|
-| 1.21.1 | NeoForge 21.1.241 或更高 | 开发中（`0.1.0`） |
+| 1.21.1 | NeoForge 21.1.241 或更高 | 早期开发中（`0.1.0-alpha.1`） |
 
 ### 未来计划
 
@@ -73,9 +73,11 @@
 
 ## 下载
 
-从 [Releases](https://github.com/FunnyB254/Cold-Weapon-Craftsmanship/releases) 页面获取最新版本。
+从 [Releases](https://github.com/FunnyB254/Cold-Weapon-Craftsmanship/releases) 页面获取最新版本，
+文件名形如 `coldweaponcraftsmanship-0.1.0-alpha.1.jar`。
 
-> 🚧 **尚未完成**：该页面目前还没有任何发布版本。
+> ⚠ 这是**早期开发版本**（`0.1.0-alpha.1`）：内容仍在填充，公开的数据格式与玩法还会变动，
+> 不建议用于长期存档。
 
 ## Wiki
 

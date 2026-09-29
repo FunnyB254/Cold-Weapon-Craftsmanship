@@ -4,7 +4,7 @@ license="MIT (code) + All Rights Reserved (sprite & palette textures)"
 
 [[mods]]
 modId="coldweaponcraftsmanship"
-version="0.1.0"
+version="0.1.0-alpha.1"
 displayName="Cold Weapon Craftsmanship"
 description="Cold Weapon Craftsmanship is a mod that guides players in crafting realistic cold weapons."
 
